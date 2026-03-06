@@ -1,0 +1,348 @@
+---
+title: "Defining Pipes"
+description: "Learn how to define pipes, endpoints, and SQL transformations with parameters"
+---
+
+Pipes are SQL transformations in Tinybird. They can be internal processing logic or API endpoints.
+
+## Pipes vs Endpoints
+
+The SDK provides two main functions:
+
+- **`definePipe()`** - Internal pipes for reusable SQL logic (not exposed as API)
+- **`defineEndpoint()`** - API endpoints that can be queried from your application
+
+## Defining Endpoints
+
+Endpoints are the most common use case - they expose your data as HTTP APIs:
+
+```typescript
+import { defineEndpoint, node, t, p, type InferParams, type InferOutputRow } from "@tinybirdco/sdk";
+
+export const topPages = defineEndpoint("top_pages", {
+  description: "Get the most visited pages",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+export type TopPagesParams = InferParams<typeof topPages>;
+export type TopPagesOutput = InferOutputRow<typeof topPages>;
+```
+
+## Defining Internal Pipes
+
+Use `definePipe()` for reusable SQL logic that isn't exposed as an API:
+
+```typescript
+import { definePipe, node, p } from "@tinybirdco/sdk";
+
+export const filteredEvents = definePipe("filtered_events", {
+  description: "Filter events by date range",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+  },
+  nodes: [
+    node({
+      name: "filtered",
+      sql: `
+        SELECT * FROM events
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+      `,
+    }),
+  ],
+});
+```
+
+You can reference this pipe from other pipes to build modular transformations.
+
+## Nodes
+
+Nodes are the building blocks of pipes. Each node is a SQL transformation:
+
+### Single Node
+
+Simple queries with one transformation:
+
+```typescript
+nodes: [
+  node({
+    name: "aggregated",
+    sql: `
+      SELECT event_type, count() as event_count
+      FROM events
+      GROUP BY event_type
+      ORDER BY event_count DESC
+    `,
+  }),
+]
+```
+
+### Multiple Nodes
+
+Chain transformations together:
+
+```typescript
+nodes: [
+  node({
+    name: "filtered",
+    sql: `
+      SELECT *
+      FROM events
+      WHERE timestamp BETWEEN {{DateTime(start_date)}} AND {{DateTime(end_date)}}
+    `,
+  }),
+  node({
+    name: "aggregated",
+    sql: `
+      SELECT
+        event_type,
+        count() as event_count,
+        uniqExact(user_id) as unique_users
+      FROM filtered
+      GROUP BY event_type
+      ORDER BY event_count DESC
+      LIMIT {{Int32(limit, 10)}}
+    `,
+  }),
+]
+```
+
+Each node can reference previous nodes by name in its SQL.
+
+## Parameters
+
+Define query parameters with `p.*` validators:
+
+### Required Parameters
+
+```typescript
+params: {
+  start_date: p.dateTime(),
+  user_id: p.string(),
+}
+```
+
+### Optional Parameters with Defaults
+
+```typescript
+params: {
+  limit: p.int32().optional(10),
+  offset: p.int32().optional(0),
+  status: p.string().optional("active"),
+}
+```
+
+### With Descriptions
+
+```typescript
+params: {
+  status: p.string()
+    .optional("active")
+    .describe("Filter by status"),
+}
+```
+
+## SQL Templates
+
+Use Tinybird's template syntax to reference parameters:
+
+### Basic Parameters
+
+```sql
+WHERE timestamp >= {{DateTime(start_date)}}
+  AND status = {{String(status, 'active')}}
+  AND user_id = {{String(user_id)}}
+```
+
+### Type Casting
+
+Always cast parameters to the correct type:
+
+- `{{DateTime(param)}}` - DateTime values
+- `{{String(param)}}` - String values  
+- `{{Int32(param)}}` - 32-bit integers
+- `{{UInt64(param)}}` - Unsigned 64-bit integers
+- `{{Float64(param)}}` - Floating point numbers
+
+### Default Values
+
+Provide defaults in the template:
+
+```sql
+LIMIT {{Int32(limit, 10)}}
+WHERE status = {{String(status, 'active')}}
+```
+
+## Output Schema
+
+Define the output schema for type safety:
+
+```typescript
+output: {
+  pathname: t.string(),
+  views: t.uint64(),
+  unique_sessions: t.uint64(),
+  avg_time_on_page: t.float64(),
+}
+```
+
+The output schema:
+- Provides type inference for your client code
+- Documents the API response structure
+- Required for endpoints, optional for internal pipes
+
+## Endpoint Caching
+
+Enable caching for better performance:
+
+```typescript
+export const topPages = defineEndpoint("top_pages", {
+  description: "Get the most visited pages",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `SELECT pathname, count() AS views FROM page_views GROUP BY pathname`,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+  cache: {
+    enabled: true,
+    ttl: 300, // 5 minutes
+  },
+});
+```
+
+## Access Tokens
+
+Control access to endpoints with static tokens:
+
+```typescript
+import { defineToken, defineEndpoint, node, t } from "@tinybirdco/sdk";
+
+const appToken = defineToken("app_read");
+
+export const topEvents = defineEndpoint("top_events", {
+  nodes: [
+    node({ name: "endpoint", sql: "SELECT * FROM events LIMIT 10" })
+  ],
+  output: { 
+    timestamp: t.dateTime(), 
+    event_name: t.string() 
+  },
+  tokens: [{ token: appToken, scope: "READ" }],
+});
+```
+
+## Complete Example
+
+A fully-featured endpoint with multiple nodes and parameters:
+
+```typescript
+import { defineEndpoint, node, p, t, type InferParams, type InferOutputRow } from "@tinybirdco/sdk";
+
+export const topEvents = defineEndpoint("top_events", {
+  description: "Get top events by count with filtering",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    event_type: p.string().optional(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "filtered",
+      sql: `
+        SELECT *
+        FROM events
+        WHERE timestamp BETWEEN {{DateTime(start_date)}} AND {{DateTime(end_date)}}
+        {% if defined(event_type) %}
+          AND event_type = {{String(event_type)}}
+        {% end %}
+      `,
+    }),
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT
+          event_type,
+          count() as event_count,
+          uniqExact(user_id) as unique_users
+        FROM filtered
+        GROUP BY event_type
+        ORDER BY event_count DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    event_type: t.string(),
+    event_count: t.uint64(),
+    unique_users: t.uint64(),
+  },
+  cache: {
+    enabled: true,
+    ttl: 60,
+  },
+});
+
+export type TopEventsParams = InferParams<typeof topEvents>;
+export type TopEventsOutput = InferOutputRow<typeof topEvents>;
+```
+
+## Type Inference
+
+Export types for your application code:
+
+```typescript
+import { type InferParams, type InferOutputRow } from "@tinybirdco/sdk";
+import { topPages } from "./pipes";
+
+// Infer parameter types
+type TopPagesParams = InferParams<typeof topPages>;
+// { start_date: string, end_date: string, limit?: number }
+
+// Infer output row types
+type TopPagesOutput = InferOutputRow<typeof topPages>;
+// { pathname: string, views: bigint }
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Materialized Views" icon="refresh" href="/guides/materialized-views">
+    Create real-time aggregations
+  </Card>
+  <Card title="Copy Pipes" icon="copy" href="/guides/copy-pipes">
+    Schedule periodic data snapshots
+  </Card>
+</CardGroup>

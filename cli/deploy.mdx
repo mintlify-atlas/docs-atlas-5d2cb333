@@ -1,0 +1,491 @@
+---
+title: tinybird deploy
+description: Deploy resources to the main Tinybird workspace (production)
+---
+
+Builds your TypeScript resources and deploys them to the main Tinybird workspace. This is the only command that can modify production.
+
+## Syntax
+
+```bash
+tinybird deploy [options]
+```
+
+## Basic Usage
+
+<CodeGroup>
+```bash Deploy to Production
+tinybird deploy
+```
+
+```bash Preview Changes
+tinybird deploy --dry-run
+```
+
+```bash Validate Without Applying
+tinybird deploy --check
+```
+</CodeGroup>
+
+## How It Works
+
+1. Reads configuration from `tinybird.config.json`
+2. Bundles TypeScript files from `include` paths
+3. Validates all resource definitions
+4. Pushes to main workspace using `/v1/deploy` API
+5. Reports changes and validates safety
+6. Blocks destructive operations by default
+
+## Output Example
+
+```text
+Building resources...
+✓ Found 3 datasources, 5 pipes
+
+Deploying to main workspace...
+⚠ This will modify production resources
+
+Deployed in 2.1s:
+  Datasources:
+    • Created: user_events
+    • Changed: page_views (schema updated)
+    • Unchanged: sessions
+  
+  Pipes:
+    • Created: user_funnel
+    • Changed: top_pages (query updated)
+    • Unchanged: analytics, dashboard, metrics
+```
+
+## Options
+
+### `--dry-run`
+
+Build resources without deploying:
+
+```bash
+tinybird deploy --dry-run
+```
+
+```text Output
+Building resources...
+✓ Found 3 datasources, 5 pipes
+
+Dry run - no changes deployed to production
+```
+
+Use for:
+- Validating configuration before deploy
+- Testing in CI without side effects
+- Previewing resource changes
+
+### `--check`
+
+Validate with Tinybird API without applying changes:
+
+```bash
+tinybird deploy --check
+```
+
+```text Output
+Validating deployment...
+✓ All resources valid
+
+Changes that would be applied:
+  Datasources: 1 created
+  Pipes: 1 changed
+
+No changes applied (--check mode)
+```
+
+Difference from `--dry-run`:
+- `--dry-run`: Local validation only
+- `--check`: API validation + preview actual changes
+
+### `--allow-destructive-operations`
+
+Allow deleting resources in production:
+
+```bash
+tinybird deploy --allow-destructive-operations
+```
+
+<Warning>
+  Use with extreme caution. This can permanently delete datasources and their data.
+</Warning>
+
+```text Output
+⚠ Destructive operations allowed
+
+Deployed:
+  Datasources:
+    • Deleted: old_events (⚠ data permanently removed)
+  Pipes:
+    • Deleted: deprecated_endpoint
+```
+
+## Destructive Operations
+
+By default, deploy **blocks** resource deletion to prevent data loss:
+
+```typescript
+// Removed datasource from code
+// export const oldEvents = defineDatasource("old_events", {...});
+```
+
+```bash
+tinybird deploy
+```
+
+```text Error
+Deployment blocked: destructive operations detected
+
+Resources that would be deleted:
+  • Datasource: old_events
+  • Pipe: deprecated_endpoint
+
+To proceed, use:
+  tinybird deploy --allow-destructive-operations
+```
+
+### Safe Changes
+
+These changes are **allowed** without `--allow-destructive-operations`:
+
+- Creating new resources
+- Updating existing resources
+- Schema changes (adding columns)
+- Query modifications
+
+### Blocked Changes
+
+These require `--allow-destructive-operations`:
+
+- Deleting datasources (data loss)
+- Deleting pipes (breaks API consumers)
+- Deleting connections (breaks ingestion)
+
+## Production Safety
+
+### Main Branch Only
+
+Deploy only works on main/master branch:
+
+```bash
+# On feature branch
+git branch
+# * feature/new-endpoint
+
+tinybird deploy
+```
+
+```text Error
+Cannot use 'deploy' on feature branch.
+Merge to main first, or use 'tinybird build' for branch deployments.
+```
+
+### Confirmation Prompt
+
+Interactive confirmation for production changes:
+
+```text
+Deploying to main workspace
+⚠ This will modify production resources
+
+Continue? (y/N)
+```
+
+<Note>
+  Confirmation can be bypassed in CI by setting `CI=true` environment variable.
+</Note>
+
+## Deployment Process
+
+### 1. Build Phase
+
+Compiles TypeScript resources:
+
+```text
+Building resources...
+✓ Found 3 datasources, 5 pipes
+```
+
+### 2. Validation Phase
+
+Validates resource definitions:
+
+```text
+Validating resources...
+✓ All datasources valid
+✓ All pipes valid
+✓ No circular dependencies
+```
+
+### 3. Deploy Phase
+
+Pushes to Tinybird:
+
+```text
+Deploying to main workspace...
+✓ Datasources deployed
+✓ Pipes deployed
+```
+
+### 4. Verification Phase
+
+Verifies deployment success:
+
+```text
+✓ Deployment successful
+✓ All resources created/updated
+```
+
+## Change Detection
+
+Tinybird detects changes between your code and production:
+
+### Created Resources
+
+```typescript
+// New datasource
+export const userEvents = defineDatasource("user_events", {...});
+```
+
+```text Output
+Datasources:
+  • Created: user_events
+```
+
+### Changed Resources
+
+```typescript
+// Modified schema
+export const pageViews = defineDatasource("page_views", {
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    user_id: t.string(), // ← Added column
+  },
+});
+```
+
+```text Output
+Datasources:
+  • Changed: page_views (schema updated)
+```
+
+### Unchanged Resources
+
+```text Output
+Datasources:
+  • Unchanged: sessions, analytics
+```
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml .github/workflows/tinybird-cd.yaml
+name: Tinybird CD
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm install
+      - run: npx tinybird deploy
+```
+
+### GitLab CI
+
+```yaml .gitlab-ci.yml
+tinybird_deploy:
+  stage: deploy
+  only:
+    - main
+  script:
+    - npm install
+    - npx tinybird deploy
+  variables:
+    TINYBIRD_TOKEN: $TINYBIRD_TOKEN
+```
+
+### Environment Variables
+
+Set in CI platform:
+
+```bash
+TINYBIRD_TOKEN=p.your_production_token
+CI=true  # Skips interactive prompts
+```
+
+## Examples
+
+### Standard Deployment
+
+```bash
+# Merge PR to main
+git checkout main
+git pull origin main
+
+# Deploy to production
+tinybird deploy
+```
+
+### Preview Before Deploy
+
+```bash
+# Check what would change
+tinybird deploy --check
+
+# Review output, then deploy
+tinybird deploy
+```
+
+### Clean Up Old Resources
+
+```bash
+# Remove old datasource from code
+edit src/tinybird.ts
+
+# Deploy with destructive flag
+tinybird deploy --allow-destructive-operations
+```
+
+### Validate in CI
+
+```bash
+# In CI pipeline
+tinybird deploy --check
+```
+
+Validates without deploying.
+
+## Deploy Strategies
+
+### Direct Deploy (Simple)
+
+```bash
+main branch → tinybird deploy → production
+```
+
+Best for:
+- Small teams
+- Low-traffic applications
+- Quick iterations
+
+### Branch + Deploy (Recommended)
+
+```bash
+feature branch → tinybird build → test branch
+           ↓
+     merge to main
+           ↓
+     tinybird deploy → production
+```
+
+Best for:
+- Teams
+- Production applications
+- Testing before deploy
+
+### Preview Environments
+
+```bash
+feature → build → feature branch
+main → build → staging branch
+main → deploy → production
+```
+
+Best for:
+- Large teams
+- Complex applications
+- Multiple environments
+
+## Rollback
+
+To rollback a deployment:
+
+```bash
+# Revert commit
+git revert HEAD
+
+# Redeploy
+tinybird deploy
+```
+
+Or restore from git history:
+
+```bash
+# Checkout previous version
+git checkout HEAD~1 src/tinybird.ts
+
+# Deploy
+tinybird deploy
+```
+
+## Troubleshooting
+
+### Deploy Failed
+
+```text
+Error: Deploy failed: Datasource 'events' validation error
+```
+
+Fix validation errors and retry:
+
+```bash
+# Fix the issue
+edit src/tinybird.ts
+
+# Validate locally
+tinybird deploy --dry-run
+
+# Deploy again
+tinybird deploy
+```
+
+### Token Invalid
+
+```text
+Error: Invalid token or insufficient permissions
+```
+
+Ensure token has ADMIN scope:
+
+```bash
+tinybird login
+```
+
+### Main Branch Check Failed
+
+```text
+Error: Not on main branch
+```
+
+Switch to main:
+
+```bash
+git checkout main
+tinybird deploy
+```
+
+## Related Commands
+
+- **build**: Deploy to feature branch
+- **dev**: Watch mode for development
+- **branch**: Manage branches
+
+<Warning>
+  Deploy directly modifies your production workspace. Always test changes in a branch first using `tinybird build`.
+</Warning>

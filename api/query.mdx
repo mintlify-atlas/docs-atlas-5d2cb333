@@ -1,0 +1,264 @@
+---
+title: "Query"
+description: "Query pipe endpoints with type-safe parameters"
+---
+
+## Overview
+
+Query pipe endpoints using the `query()` method on the client. The method supports type-safe parameters and returns structured results with column metadata and statistics.
+
+## Usage
+
+### With TinybirdClient
+
+```typescript
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+});
+
+const result = await client.query('top_events', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+});
+```
+
+### With Typed Tinybird Client
+
+For full type safety, use the typed `Tinybird` client:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+
+// Fully typed with autocomplete for parameters and response
+const result = await tinybird.topPages.query({
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+  limit: 5,
+});
+
+// result.data is typed: { pathname: string, views: bigint }[]
+```
+
+## Method Signature
+
+```typescript
+client.query<T = unknown>(
+  pipeName: string,
+  params?: Record<string, unknown>,
+  options?: QueryOptions
+): Promise<QueryResult<T>>
+```
+
+## Parameters
+
+<ParamField path="pipeName" type="string" required>
+  Name of the pipe endpoint to query
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Query parameters object. Keys should match the parameter names defined in your pipe.
+  
+  ```typescript
+  {
+    start_date: '2024-01-01',
+    end_date: '2024-01-31',
+    limit: 10
+  }
+  ```
+</ParamField>
+
+<ParamField path="options" type="QueryOptions">
+  Additional request options
+</ParamField>
+
+### QueryOptions
+
+<ParamField path="timeout" type="number">
+  Request timeout in milliseconds. Overrides the default client timeout.
+  
+  ```typescript
+  { timeout: 30000 } // 30 seconds
+  ```
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortController signal for request cancellation
+  
+  ```typescript
+  const controller = new AbortController();
+  await client.query('top_events', params, { signal: controller.signal });
+  ```
+</ParamField>
+
+## Response
+
+Returns a `QueryResult<T>` object:
+
+```typescript
+interface QueryResult<T> {
+  data: T[];           // Query result data
+  meta: ColumnMeta[];  // Column metadata
+  rows: number;        // Number of rows returned
+  statistics: QueryStatistics; // Query statistics
+}
+```
+
+### ColumnMeta
+
+```typescript
+interface ColumnMeta {
+  name: string;  // Column name
+  type: string;  // Tinybird/ClickHouse type
+}
+```
+
+### QueryStatistics
+
+```typescript
+interface QueryStatistics {
+  elapsed: number;      // Time elapsed in seconds
+  rows_read: number;    // Number of rows read
+  bytes_read: number;   // Number of bytes read
+}
+```
+
+## Examples
+
+### Basic Query
+
+```typescript
+const result = await client.query('top_pages', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+  limit: 10,
+});
+
+console.log(`Returned ${result.rows} rows`);
+console.log(`Query took ${result.statistics.elapsed}s`);
+
+for (const row of result.data) {
+  console.log(row);
+}
+```
+
+### With Type Parameter
+
+```typescript
+interface TopPage {
+  pathname: string;
+  views: number;
+}
+
+const result = await client.query<TopPage>('top_pages', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+});
+
+// result.data is now typed as TopPage[]
+const topPath = result.data[0].pathname;
+const topViews = result.data[0].views;
+```
+
+### With Timeout
+
+```typescript
+const result = await client.query(
+  'expensive_query',
+  { year: 2024 },
+  { timeout: 60000 } // 60 seconds
+);
+```
+
+### With Cancellation
+
+```typescript
+const controller = new AbortController();
+
+// Cancel after 5 seconds
+setTimeout(() => controller.abort(), 5000);
+
+try {
+  const result = await client.query(
+    'long_running_query',
+    { year: 2024 },
+    { signal: controller.signal }
+  );
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Query was cancelled');
+  }
+}
+```
+
+### Accessing Column Metadata
+
+```typescript
+const result = await client.query('top_events', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+});
+
+// Inspect column types
+for (const column of result.meta) {
+  console.log(`${column.name}: ${column.type}`);
+}
+// Output:
+// event_name: String
+// event_count: UInt64
+```
+
+### Query Without Parameters
+
+Some pipes don't require parameters:
+
+```typescript
+const result = await client.query('system_status');
+```
+
+## Error Handling
+
+```typescript
+import { TinybirdError } from '@tinybirdco/sdk';
+
+try {
+  const result = await client.query('top_events', {
+    start_date: '2024-01-01',
+    end_date: '2024-01-31',
+  });
+} catch (error) {
+  if (error instanceof TinybirdError) {
+    console.error(`Tinybird API error: ${error.message}`);
+    console.error(`Status code: ${error.statusCode}`);
+    
+    if (error.isAuthError()) {
+      console.error('Authentication failed');
+    } else if (error.isRateLimitError()) {
+      console.error('Rate limit exceeded');
+    } else if (error.isNotFoundError()) {
+      console.error('Pipe not found');
+    }
+  } else {
+    throw error;
+  }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="TinybirdClient" icon="gear" href="/api/tinybird-client">
+    Core client class documentation
+  </Card>
+  <Card title="Ingest" icon="arrow-down-to-bracket" href="/api/ingest">
+    Ingest data into datasources
+  </Card>
+  <Card title="Typed Client" icon="code" href="/api/tinybird-client">
+    Type-safe client with schema inference
+  </Card>
+  <Card title="Define Endpoint" icon="diagram-project" href="/api/define-endpoint">
+    Define queryable pipe endpoints
+  </Card>
+</CardGroup>

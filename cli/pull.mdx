@@ -1,0 +1,416 @@
+---
+title: tinybird pull
+description: Download cloud resources as Tinybird datafiles
+---
+
+Downloads all resources from your Tinybird workspace as native datafiles (`.datasource`, `.pipe`, `.connection`). Useful for backup, migration, or inspecting cloud resources.
+
+## Syntax
+
+```bash
+tinybird pull [options]
+```
+
+## Basic Usage
+
+<CodeGroup>
+```bash Pull to Current Directory
+tinybird pull
+```
+
+```bash Pull to Specific Directory
+tinybird pull --output-dir tinybird-datafiles
+```
+
+```bash Overwrite Existing Files
+tinybird pull --force
+```
+</CodeGroup>
+
+## How It Works
+
+1. Authenticates with your Tinybird workspace
+2. Fetches all datasources, pipes, and connections
+3. Converts each resource to native datafile format
+4. Writes files to output directory
+5. Reports what was downloaded
+
+## Output Example
+
+```bash
+tinybird pull
+```
+
+```text Terminal
+Pulling resources from workspace: my-workspace
+
+Downloaded:
+  Datasources:
+    • events.datasource
+    • page_views.datasource
+    • sessions.datasource
+  
+  Pipes:
+    • top_pages.pipe
+    • analytics.pipe
+    • user_funnel.pipe
+  
+  Connections:
+    • kafka.connection
+    • s3.connection
+
+✓ Pulled 8 resources in 1.2s
+```
+
+## Options
+
+### `--output-dir <path>`
+
+Specify output directory:
+
+```bash
+tinybird pull --output-dir tinybird-backup
+```
+
+Default: Current directory (`.`)
+
+### `--force`
+
+Overwrite existing files:
+
+```bash
+tinybird pull --force
+```
+
+Without `--force`, pull fails if files already exist.
+
+## Downloaded Files
+
+Each resource becomes a separate file:
+
+### Datasource Files
+
+```text events.datasource
+SCHEMA >
+  timestamp DateTime,
+  event_name LowCardinality(String),
+  user_id Nullable(String)
+
+ENGINE "MergeTree"
+ENGINE_SORTING_KEY "event_name, timestamp"
+```
+
+### Pipe Files
+
+```text top_pages.pipe
+DESCRIPTION >
+  Get the most visited pages
+
+NODE aggregated
+SQL >
+  SELECT pathname, count() AS views
+  FROM page_views
+  GROUP BY pathname
+  ORDER BY views DESC
+  LIMIT {{Int32(limit, 10)}}
+```
+
+### Connection Files
+
+```text kafka.connection
+TYPE kafka
+KAFKA_BOOTSTRAP_SERVERS kafka.example.com:9092
+KAFKA_SECURITY_PROTOCOL SASL_SSL
+```
+
+## File Organization
+
+By default, all files are saved flat in the output directory:
+
+```bash
+tinybird pull --output-dir backup/
+```
+
+```text Directory Structure
+backup/
+├── events.datasource
+├── page_views.datasource
+├── sessions.datasource
+├── top_pages.pipe
+├── analytics.pipe
+├── kafka.connection
+└── s3.connection
+```
+
+Organize manually if needed:
+
+```bash
+mkdir -p tinybird/{datasources,pipes,connections}
+mv *.datasource tinybird/datasources/
+mv *.pipe tinybird/pipes/
+mv *.connection tinybird/connections/
+```
+
+## Use Cases
+
+### Backup Resources
+
+Regularly backup your workspace:
+
+```bash
+# Create dated backup
+BACKUP_DIR="backups/$(date +%Y%m%d)"
+mkdir -p "$BACKUP_DIR"
+tinybird pull --output-dir "$BACKUP_DIR"
+```
+
+### Inspect Cloud Resources
+
+Download to review what's in production:
+
+```bash
+tinybird pull --output-dir cloud-snapshot
+cat cloud-snapshot/events.datasource
+```
+
+### Migrate to TypeScript
+
+Pull datafiles, then migrate to TypeScript:
+
+```bash
+# Pull from cloud
+tinybird pull --output-dir legacy
+
+# Migrate to TypeScript
+tinybird migrate legacy/ --out src/tinybird.ts
+```
+
+### Clone Workspace
+
+Copy resources from one workspace to another:
+
+```bash
+# Pull from source workspace
+TINYBIRD_TOKEN=source_token tinybird pull --output-dir temp
+
+# Push to destination workspace
+# (convert to TypeScript or use Tinybird CLI push command)
+```
+
+## Examples
+
+### Pull to Custom Directory
+
+```bash
+tinybird pull --output-dir datafiles
+```
+
+```text Output
+✓ Pulled 8 resources to: datafiles/
+```
+
+### Update Existing Backup
+
+```bash
+tinybird pull --output-dir backup --force
+```
+
+```text Output
+⚠ Overwriting 8 existing files
+✓ Pulled 8 resources
+```
+
+### Pull Specific Branch
+
+Pull from a branch (requires branch token):
+
+```bash
+# Get branch token first
+tinybird branch status
+
+# Use branch token
+TINYBIRD_TOKEN=branch_token tinybird pull
+```
+
+## Integration with Config
+
+Use pulled datafiles in your config:
+
+```bash
+# Pull resources
+tinybird pull --output-dir tinybird
+
+# Add to config
+```
+
+```json tinybird.config.json
+{
+  "include": [
+    "tinybird/**/*.datasource",
+    "tinybird/**/*.pipe",
+    "tinybird/**/*.connection"
+  ]
+}
+```
+
+Now `tinybird build` and `tinybird dev` include pulled resources.
+
+## Filtering Resources
+
+Pull downloads **all** resources. To filter:
+
+```bash
+# Pull all
+tinybird pull --output-dir all
+
+# Keep only datasources
+rm all/*.pipe all/*.connection
+mv all/*.datasource datasources/
+```
+
+## File Conflicts
+
+Without `--force`, pull fails on existing files:
+
+```bash
+tinybird pull
+```
+
+```text Error
+Error: File already exists: events.datasource
+Use --force to overwrite existing files.
+```
+
+Options:
+1. Use `--force` to overwrite
+2. Use different `--output-dir`
+3. Delete existing files first
+
+## Secrets in Connections
+
+Connection files **exclude** secret values:
+
+```text kafka.connection
+TYPE kafka
+KAFKA_BOOTSTRAP_SERVERS kafka.example.com:9092
+KAFKA_KEY ***  # Secret not included
+KAFKA_SECRET ***  # Secret not included
+```
+
+You must re-add secrets when pushing to a new workspace.
+
+## Comparing with Cloud
+
+Diff local and cloud resources:
+
+```bash
+# Pull cloud resources
+tinybird pull --output-dir cloud
+
+# Compare with local
+diff -r tinybird/ cloud/
+```
+
+Shows differences between local and production.
+
+## Automation
+
+### Scheduled Backups
+
+```bash cron
+# Backup daily at midnight
+0 0 * * * cd /app && tinybird pull --output-dir "backups/$(date +\%Y\%m\%d)" --force
+```
+
+### CI/CD Snapshots
+
+```yaml .github/workflows/backup.yaml
+name: Backup Tinybird
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx tinybird pull --output-dir backup --force
+      - run: git add backup/
+      - run: git commit -m "Backup $(date)"
+      - run: git push
+    env:
+      TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+```
+
+## Output Statistics
+
+Pull reports counts by resource type:
+
+```text
+Pulled 15 resources:
+  Datasources: 5
+  Pipes: 8
+  Connections: 2
+  
+Output directory: backup/
+```
+
+## Troubleshooting
+
+### No Resources Found
+
+```text
+Warning: No resources found in workspace
+```
+
+Workspace is empty or token has no permissions.
+
+### Authentication Failed
+
+```text
+Error: Invalid token
+```
+
+Run `tinybird login` to refresh credentials.
+
+### Permission Denied
+
+```text
+Error: Permission denied: /path/to/output
+```
+
+Ensure write permissions for output directory:
+
+```bash
+mkdir -p output-dir
+chmod u+w output-dir
+```
+
+### File Already Exists
+
+```text
+Error: File already exists: events.datasource
+```
+
+Use `--force` or delete existing files:
+
+```bash
+rm *.datasource *.pipe *.connection
+tinybird pull
+```
+
+## Related Commands
+
+- **migrate**: Convert pulled datafiles to TypeScript
+- **build**: Deploy resources back to Tinybird
+- **deploy**: Deploy to production
+
+<Note>
+  Pulled datafiles are read-only snapshots. They don't include data, only resource definitions.
+</Note>
+
+<Warning>
+  Connection files don't include secret values. Back up secrets separately.
+</Warning>

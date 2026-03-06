@@ -1,0 +1,510 @@
+---
+title: 'TinybirdApi'
+description: 'Low-level Tinybird API wrapper class'
+---
+
+## Overview
+
+`TinybirdApi` is a low-level API wrapper that provides direct access to Tinybird's REST API. It is intentionally decoupled from the typed `TinybirdClient` layer, allowing you to use it standalone with just a `baseUrl` and `token`.
+
+This class is useful when you need:
+- Direct API access without type definitions
+- Dynamic queries without compile-time type checking
+- A lightweight wrapper for scripting or automation
+- To integrate Tinybird into existing codebases without adopting the full SDK
+
+## Constructor
+
+The `TinybirdApi` class is typically created using the [`createTinybirdApi()`](/api/create-tinybird-api) function:
+
+```typescript
+import { createTinybirdApi } from "@tinybirdco/sdk";
+
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+});
+```
+
+## Methods
+
+### query()
+
+Query a Tinybird API endpoint (pipe) with optional parameters.
+
+```typescript
+query<T = unknown, P extends Record<string, unknown> = Record<string, unknown>>(
+  endpointName: string,
+  params?: P,
+  options?: TinybirdApiQueryOptions
+): Promise<QueryResult<T>>
+```
+
+#### Parameters
+
+<ParamField path="endpointName" type="string" required>
+  The name of the pipe endpoint to query
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Query parameters to pass to the endpoint. Array values are sent as multiple query parameters with the same key.
+</ParamField>
+
+<ParamField path="options" type="TinybirdApiQueryOptions">
+  Additional options:
+  - `token`: Optional token override for this request
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+#### Example
+
+```typescript
+interface TopPagesRow { pathname: string; visits: number }
+interface TopPagesParams { start_date: string; end_date: string; limit?: number }
+
+const result = await api.query<TopPagesRow, TopPagesParams>("top_pages", {
+  start_date: "2024-01-01",
+  end_date: "2024-01-31",
+  limit: 5,
+});
+
+console.log(result.data); // Array of TopPagesRow
+```
+
+<Note>
+  **Important:** Do not pass `Date` objects as query parameters. Use strings in formats like `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS` instead.
+</Note>
+
+---
+
+### ingest()
+
+Ingest a single row of data into a datasource.
+
+```typescript
+ingest<T extends Record<string, unknown>>(
+  datasourceName: string,
+  event: T,
+  options?: TinybirdApiIngestOptions
+): Promise<IngestResult>
+```
+
+#### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  The name of the datasource to ingest data into
+</ParamField>
+
+<ParamField path="event" type="Record<string, unknown>" required>
+  The row data to ingest. Must match your datasource schema.
+</ParamField>
+
+<ParamField path="options" type="TinybirdApiIngestOptions">
+  Additional options:
+  - `token`: Optional token override for this request
+  - `wait`: Whether to wait for data to be committed (default: `true`)
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+#### Example
+
+```typescript
+interface EventRow {
+  timestamp: string;
+  event_name: string;
+  pathname: string;
+}
+
+await api.ingest<EventRow>("events", {
+  timestamp: "2024-01-15 10:30:00",
+  event_name: "page_view",
+  pathname: "/home",
+});
+```
+
+<Note>
+  **Important:** Do not pass `Date` objects in the event payload. Use strings in formats like `YYYY-MM-DD HH:MM:SS` instead.
+</Note>
+
+---
+
+### ingestBatch()
+
+Ingest multiple rows of data into a datasource in a single request.
+
+```typescript
+ingestBatch<T extends Record<string, unknown>>(
+  datasourceName: string,
+  events: T[],
+  options?: TinybirdApiIngestOptions
+): Promise<IngestResult>
+```
+
+#### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  The name of the datasource to ingest data into
+</ParamField>
+
+<ParamField path="events" type="Array<Record<string, unknown>>" required>
+  Array of row data to ingest. Each row must match your datasource schema.
+</ParamField>
+
+<ParamField path="options" type="TinybirdApiIngestOptions">
+  Same options as `ingest()`
+</ParamField>
+
+#### Example
+
+```typescript
+await api.ingestBatch("events", [
+  { timestamp: "2024-01-15 10:30:00", event_name: "page_view", pathname: "/home" },
+  { timestamp: "2024-01-15 10:31:00", event_name: "click", pathname: "/pricing" },
+]);
+```
+
+---
+
+### sql()
+
+Execute raw SQL queries against Tinybird.
+
+```typescript
+sql<T = unknown>(
+  sql: string,
+  options?: TinybirdApiQueryOptions
+): Promise<QueryResult<T>>
+```
+
+#### Parameters
+
+<ParamField path="sql" type="string" required>
+  The SQL query to execute
+</ParamField>
+
+<ParamField path="options" type="TinybirdApiQueryOptions">
+  Additional options:
+  - `token`: Optional token override for this request
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+#### Example
+
+```typescript
+interface CountResult { total: number }
+
+const result = await api.sql<CountResult>("SELECT count() AS total FROM events");
+console.log(result.data[0].total);
+```
+
+---
+
+### appendDatasource()
+
+Append data to a datasource from a remote URL or local file.
+
+```typescript
+appendDatasource(
+  datasourceName: string,
+  options: AppendOptions,
+  apiOptions?: TinybirdApiAppendOptions
+): Promise<AppendResult>
+```
+
+#### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  The name of the datasource to append data to
+</ParamField>
+
+<ParamField path="options" type="AppendOptions" required>
+  Source options:
+  - `url`: Remote URL to a CSV, NDJSON, or Parquet file (mutually exclusive with `file`)
+  - `file`: Local file path (mutually exclusive with `url`)
+  - `csvDialect`: Optional CSV parsing options (delimiter, newLine, escapeChar)
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+<ParamField path="apiOptions" type="TinybirdApiAppendOptions">
+  Additional options:
+  - `mode`: `"append"` (default) or `"replace"` to replace all existing data
+  - `token`: Optional token override for this request
+</ParamField>
+
+#### Example
+
+```typescript
+// Import from remote URL
+await api.appendDatasource("events", {
+  url: "https://example.com/events.csv",
+});
+
+// Replace all data
+await api.appendDatasource(
+  "events",
+  { url: "https://example.com/events.csv" },
+  { mode: "replace" }
+);
+```
+
+<Note>
+  The format (CSV, NDJSON, Parquet) is automatically detected from the file extension.
+</Note>
+
+---
+
+### deleteDatasource()
+
+Delete rows from a datasource that match a SQL condition.
+
+```typescript
+deleteDatasource(
+  datasourceName: string,
+  options: DeleteOptions,
+  apiOptions?: TinybirdApiDeleteOptions
+): Promise<DeleteResult>
+```
+
+#### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  The name of the datasource to delete rows from
+</ParamField>
+
+<ParamField path="options" type="DeleteOptions" required>
+  Delete options:
+  - `deleteCondition`: SQL WHERE clause to match rows (required)
+  - `dryRun`: Preview deletion without executing (optional)
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+<ParamField path="apiOptions" type="TinybirdApiDeleteOptions">
+  Additional options:
+  - `token`: Optional token override for this request
+</ParamField>
+
+#### Example
+
+```typescript
+// Delete matching rows
+await api.deleteDatasource("events", {
+  deleteCondition: "event_name = 'test'",
+});
+
+// Dry run to preview what would be deleted
+const preview = await api.deleteDatasource("events", {
+  deleteCondition: "event_name = 'test'",
+  dryRun: true,
+});
+console.log(`Would delete ${preview.rows_to_be_deleted} rows`);
+```
+
+<Warning>
+  Be careful with delete operations. Always test with `dryRun: true` first to verify the condition matches the expected rows.
+</Warning>
+
+---
+
+### truncateDatasource()
+
+Remove all rows from a datasource.
+
+```typescript
+truncateDatasource(
+  datasourceName: string,
+  options?: TruncateOptions,
+  apiOptions?: TinybirdApiTruncateOptions
+): Promise<TruncateResult>
+```
+
+#### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  The name of the datasource to truncate
+</ParamField>
+
+<ParamField path="options" type="TruncateOptions">
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+<ParamField path="apiOptions" type="TinybirdApiTruncateOptions">
+  Additional options:
+  - `token`: Optional token override for this request
+</ParamField>
+
+#### Example
+
+```typescript
+// Remove all rows from the datasource
+await api.truncateDatasource("events");
+```
+
+<Warning>
+  Truncate permanently removes all data. This operation cannot be undone.
+</Warning>
+
+---
+
+### createToken()
+
+Create a scoped token using the Tinybird Token API. Supports both static tokens and JWT tokens.
+
+```typescript
+createToken(
+  body: TinybirdApiCreateTokenRequest,
+  options?: TinybirdApiCreateTokenOptions
+): Promise<TinybirdApiCreateTokenResult>
+```
+
+#### Parameters
+
+<ParamField path="body" type="TinybirdApiCreateTokenRequest" required>
+  Token configuration:
+  - `name`: Token name/identifier
+  - `scopes`: JWT-style scope objects (array of `{ type, resource?, fixed_params?, filter? }`)
+  - `scope`: Static-token scope strings (string or string array)
+  - `limits`: Optional rate-limiting config (`{ rps?: number }`)
+</ParamField>
+
+<ParamField path="options" type="TinybirdApiCreateTokenOptions">
+  Additional options:
+  - `expirationTime`: Optional expiration time for JWT tokens (Unix timestamp)
+  - `token`: Optional token override for this request
+  - `timeout`: Request timeout in milliseconds
+  - `signal`: AbortSignal for cancellation
+</ParamField>
+
+#### Example
+
+```typescript
+const { token } = await api.createToken({
+  name: "user_123_session",
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_dashboard",
+      fixed_params: { user_id: 123 },
+    },
+  ],
+  limits: { rps: 10 },
+});
+```
+
+---
+
+### request()
+
+Execute a low-level HTTP request against the Tinybird API.
+
+```typescript
+request(
+  path: string,
+  init?: TinybirdApiRequestInit
+): Promise<Response>
+```
+
+#### Parameters
+
+<ParamField path="path" type="string" required>
+  The API path (e.g., `/v1/workspace`)
+</ParamField>
+
+<ParamField path="init" type="TinybirdApiRequestInit">
+  Standard `RequestInit` options plus:
+  - `token`: Optional token override for this request
+</ParamField>
+
+#### Example
+
+```typescript
+const response = await api.request("/v1/workspace");
+const data = await response.json();
+```
+
+---
+
+### requestJson()
+
+Execute a request and automatically parse the JSON response.
+
+```typescript
+requestJson<T = unknown>(
+  path: string,
+  init?: TinybirdApiRequestInit
+): Promise<T>
+```
+
+#### Parameters
+
+<ParamField path="path" type="string" required>
+  The API path (e.g., `/v1/workspace`)
+</ParamField>
+
+<ParamField path="init" type="TinybirdApiRequestInit">
+  Standard `RequestInit` options plus:
+  - `token`: Optional token override for this request
+</ParamField>
+
+#### Example
+
+```typescript
+interface Workspace { id: string; name: string }
+
+const workspace = await api.requestJson<Workspace>("/v1/workspace");
+console.log(workspace.name);
+```
+
+## Error Handling
+
+All methods throw `TinybirdApiError` when the API returns a non-OK response:
+
+```typescript
+import { TinybirdApiError } from "@tinybirdco/sdk";
+
+try {
+  await api.query("broken_endpoint");
+} catch (error) {
+  if (error instanceof TinybirdApiError) {
+    console.error(`API Error ${error.statusCode}: ${error.message}`);
+    console.error(error.response); // Parsed error response from Tinybird
+  }
+}
+```
+
+## Token Override
+
+Most methods support per-request token override, useful for:
+- Multi-tenant applications with different tokens per user
+- Testing with different permission levels
+- Using branch-specific tokens
+
+```typescript
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_DEFAULT_TOKEN!,
+});
+
+// Use a different token for this request
+await api.query(
+  "top_pages",
+  { start_date: "2024-01-01", end_date: "2024-01-31" },
+  { token: process.env.TINYBIRD_BRANCH_TOKEN }
+);
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="createTinybirdApi()" icon="function" href="/api/create-tinybird-api">
+    Factory function to create a TinybirdApi instance
+  </Card>
+  <Card title="Tinybird Client" icon="cube" href="/api/tinybird-client">
+    Type-safe client with schema definitions
+  </Card>
+</CardGroup>

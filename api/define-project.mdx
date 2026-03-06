@@ -1,0 +1,280 @@
+---
+title: 'defineProject'
+description: 'Aggregate datasources, pipes, and connections into a single project'
+---
+
+## Function Signature
+
+```typescript
+function defineProject<
+  TDatasources extends DatasourcesDefinition,
+  TPipes extends PipesDefinition,
+  TConnections extends ConnectionsDefinition
+>(config: ProjectConfig<TDatasources, TPipes, TConnections>): ProjectDefinition<TDatasources, TPipes, TConnections>
+```
+
+Define a Tinybird project that aggregates all datasources, pipes, and connections into a single schema definition. This is primarily used for code generation and type inference.
+
+<Note>
+Most users don't need to use `defineProject` directly. Instead, use the `Tinybird` class to create a typed client:
+
+```typescript
+import { Tinybird } from '@tinybirdco/sdk'
+import { pageViews, events } from './datasources'
+import { topPages } from './pipes'
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews, events },
+  pipes: { topPages },
+})
+```
+</Note>
+
+## Parameters
+
+<ParamField path="config" type="ProjectConfig" required>
+  Project configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="datasources" type="DatasourcesDefinition">
+      Record of datasource definitions
+    </ParamField>
+
+    <ParamField path="pipes" type="PipesDefinition">
+      Record of pipe definitions (endpoints, materialized views, copy pipes, sink pipes)
+    </ParamField>
+
+    <ParamField path="connections" type="ConnectionsDefinition">
+      Record of connection definitions (Kafka, S3, GCS)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Type
+
+```typescript
+ProjectDefinition<TDatasources, TPipes, TConnections>
+```
+
+A project definition with full type information and a typed Tinybird client.
+
+## Usage Examples
+
+### Basic Project Definition
+
+```typescript
+import { defineProject } from '@tinybirdco/sdk'
+import { events, users } from './datasources'
+import { topEvents, userActivity } from './pipes'
+
+export default defineProject({
+  datasources: {
+    events,
+    users,
+  },
+  pipes: {
+    topEvents,
+    userActivity,
+  },
+})
+```
+
+### With Connections
+
+```typescript
+import { defineProject } from '@tinybirdco/sdk'
+import { eventsKafka, landingS3 } from './connections'
+import { kafkaEvents, s3Landing } from './datasources'
+import { topEvents } from './pipes'
+
+export default defineProject({
+  datasources: {
+    kafkaEvents,
+    s3Landing,
+  },
+  pipes: {
+    topEvents,
+  },
+  connections: {
+    eventsKafka,
+    landingS3,
+  },
+})
+```
+
+### Organized Project Structure
+
+```typescript
+// tinybird/datasources.ts
+import { defineDatasource, t, engine } from '@tinybirdco/sdk'
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['timestamp'] }),
+})
+
+export const users = defineDatasource('users', {
+  schema: {
+    id: t.string(),
+    email: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['id'] }),
+})
+
+// tinybird/pipes.ts
+import { defineEndpoint, node, p, t } from '@tinybirdco/sdk'
+
+export const topEvents = defineEndpoint('top_events', {
+  params: {
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: 'endpoint',
+      sql: `
+        SELECT event_name, count() AS count
+        FROM events
+        GROUP BY event_name
+        ORDER BY count DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    event_name: t.string(),
+    count: t.uint64(),
+  },
+})
+
+// tinybird/index.ts
+import { defineProject } from '@tinybirdco/sdk'
+import * as datasources from './datasources'
+import * as pipes from './pipes'
+
+export default defineProject({
+  datasources,
+  pipes,
+})
+```
+
+## Using the Tinybird Class (Recommended)
+
+Instead of `defineProject`, most users should use the `Tinybird` class to create a typed client:
+
+```typescript
+import { Tinybird } from '@tinybirdco/sdk'
+import { pageViews, events } from './datasources'
+import { topPages, topEvents } from './pipes'
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews, events },
+  pipes: { topPages, topEvents },
+})
+
+// Type-safe queries
+const result = await tinybird.topPages.query({
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+})
+
+// Type-safe ingestion
+await tinybird.pageViews.ingest({
+  timestamp: '2024-01-15 10:30:00',
+  pathname: '/home',
+  session_id: 'abc123',
+})
+```
+
+## Configuration File
+
+Projects are typically defined in a configuration file for the CLI:
+
+```json
+// tinybird.config.json
+{
+  "include": [
+    "src/tinybird/datasources.ts",
+    "src/tinybird/pipes.ts"
+  ],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co",
+  "devMode": "branch"
+}
+```
+
+The CLI automatically discovers and loads all definitions from the included files.
+
+## Type Extraction
+
+Use helper types to extract datasources and pipes from a project:
+
+```typescript
+import { defineProject, type ExtractDatasources, type ExtractPipes } from '@tinybirdco/sdk'
+import { events } from './datasources'
+import { topEvents } from './pipes'
+
+const project = defineProject({
+  datasources: { events },
+  pipes: { topEvents },
+})
+
+type Datasources = ExtractDatasources<typeof project>
+// { events: DatasourceDefinition<...> }
+
+type Pipes = ExtractPipes<typeof project>
+// { topEvents: PipeDefinition<...> }
+```
+
+## Project Utilities
+
+```typescript
+import { getDatasource, getPipe, getDatasourceNames, getPipeNames } from '@tinybirdco/sdk'
+
+// Get resource by name
+const events = getDatasource(project, 'events')
+const topEvents = getPipe(project, 'topEvents')
+
+// Get all names
+const dsNames = getDatasourceNames(project) // ['events']
+const pipeNames = getPipeNames(project) // ['topEvents']
+```
+
+## Related Types and Functions
+
+### DatasourcesDefinition
+
+```typescript
+type DatasourcesDefinition = Record<string, DatasourceDefinition<SchemaDefinition>>
+```
+
+### PipesDefinition
+
+```typescript
+type PipesDefinition = Record<string, PipeDefinition<ParamsDefinition, OutputDefinition>>
+```
+
+### ConnectionsDefinition
+
+```typescript
+type ConnectionsDefinition = Record<string, ConnectionDefinition>
+```
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="Tinybird Class" icon="bird" href="/api/tinybird-client">
+    Create typed Tinybird clients
+  </Card>
+  <Card title="defineDatasource" icon="table" href="/api/define-datasource">
+    Define datasources
+  </Card>
+  <Card title="defineEndpoint" icon="arrow-up-right-dots" href="/api/define-endpoint">
+    Define API endpoints
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/config-file">
+    Project configuration guide
+  </Card>
+</CardGroup>

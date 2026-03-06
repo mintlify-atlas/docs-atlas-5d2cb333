@@ -1,0 +1,445 @@
+---
+title: "Type-Safe Client"
+description: "Create and use the Tinybird client for type-safe queries and data ingestion"
+---
+
+The Tinybird client provides type-safe access to your datasources and pipes with full TypeScript inference.
+
+## Creating the Client
+
+Create a client instance with your datasources and pipes:
+
+```typescript
+// src/tinybird/client.ts
+import { Tinybird } from "@tinybirdco/sdk";
+import { pageViews, type PageViewsRow } from "./datasources";
+import { topPages, type TopPagesParams, type TopPagesOutput } from "./pipes";
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+});
+
+// Re-export types for convenience
+export type { PageViewsRow, TopPagesParams, TopPagesOutput };
+export { pageViews, topPages };
+```
+
+### Configuration Options
+
+The client uses environment variables for configuration:
+
+```env
+# .env.local
+TINYBIRD_TOKEN=p.your_token_here
+TINYBIRD_BASE_URL=https://api.tinybird.co  # Optional, defaults to US region
+```
+
+For runtime configuration:
+
+```typescript
+import { Tinybird } from "@tinybirdco/sdk";
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: process.env.TINYBIRD_BASE_URL,
+});
+```
+
+## Querying Endpoints
+
+Query your endpoints with full type safety:
+
+### Basic Query
+
+```typescript
+import { tinybird } from "@tinybird/client";
+
+const result = await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+  limit: 5,
+});
+
+// result.data is fully typed: { pathname: string, views: bigint }[]
+result.data.forEach((row) => {
+  console.log(`${row.pathname}: ${row.views} views`);
+});
+```
+
+### Type-Safe Parameters
+
+TypeScript validates your parameters:
+
+```typescript
+// ✓ Valid - all required params provided
+await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+});
+
+// ✓ Valid - optional param included
+await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+  limit: 10,
+});
+
+// ✗ Error - missing required param
+await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  // Error: Property 'end_date' is missing
+});
+
+// ✗ Error - wrong type
+await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+  limit: "10", // Error: Type 'string' is not assignable to type 'number'
+});
+```
+
+### Typed Results
+
+Query results are fully typed:
+
+```typescript
+const result = await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+});
+
+// TypeScript knows the exact shape
+type ResultData = typeof result.data;
+// { pathname: string; views: bigint }[]
+
+// Autocomplete works
+result.data.forEach((row) => {
+  row.pathname; // ✓ string
+  row.views; // ✓ bigint
+  row.invalid; // ✗ Error: Property 'invalid' does not exist
+});
+```
+
+## Data Ingestion
+
+Ingest data into datasources with type safety:
+
+### Single Row Ingestion
+
+```typescript
+import { tinybird, type PageViewsRow } from "@tinybird/client";
+
+// Ingest a single row
+await tinybird.pageViews.ingest({
+  timestamp: "2024-01-15 10:30:00",
+  pathname: "/home",
+  session_id: "abc123",
+  country: "US",
+});
+
+// TypeScript validates the row shape
+await tinybird.pageViews.ingest({
+  timestamp: "2024-01-15 10:30:00",
+  pathname: "/pricing",
+  session_id: "xyz789",
+  // country is optional (nullable)
+});
+
+// ✗ Error - missing required field
+await tinybird.pageViews.ingest({
+  timestamp: "2024-01-15 10:30:00",
+  // Error: Property 'pathname' is missing
+});
+```
+
+### Batch Ingestion
+
+Ingest multiple rows at once:
+
+```typescript
+const rows: PageViewsRow[] = [
+  {
+    timestamp: "2024-01-15 10:30:00",
+    pathname: "/home",
+    session_id: "abc123",
+    country: "US",
+  },
+  {
+    timestamp: "2024-01-15 10:31:00",
+    pathname: "/pricing",
+    session_id: "abc123",
+    country: "US",
+  },
+];
+
+await tinybird.pageViews.ingest(rows);
+```
+
+## Datasource Operations
+
+The client provides several operations for managing datasource data:
+
+### Append from URL
+
+Import data from a remote file:
+
+```typescript
+await tinybird.pageViews.append({
+  url: "https://example.com/page_views.csv",
+});
+```
+
+### Replace from URL
+
+Replace all rows with data from a file:
+
+```typescript
+await tinybird.pageViews.replace({
+  url: "https://example.com/page_views_full_snapshot.csv",
+});
+```
+
+### Delete Rows
+
+Delete rows matching a condition:
+
+```typescript
+// Delete rows
+await tinybird.pageViews.delete({
+  deleteCondition: "country = 'XX'",
+});
+
+// Preview deletion without executing
+const preview = await tinybird.pageViews.delete({
+  deleteCondition: "country = 'XX'",
+  dryRun: true,
+});
+
+console.log(`Would delete ${preview.affectedRows} rows`);
+```
+
+### Truncate
+
+Remove all rows from a datasource:
+
+```typescript
+await tinybird.pageViews.truncate();
+```
+
+## Complete Examples
+
+### Next.js API Route
+
+Query data in a Next.js API route:
+
+```typescript
+// app/api/analytics/route.ts
+import { tinybird } from "@tinybird/client";
+import { NextResponse } from "next/server";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const startDate = searchParams.get("start_date");
+  const endDate = searchParams.get("end_date");
+
+  if (!startDate || !endDate) {
+    return NextResponse.json(
+      { error: "Missing date parameters" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const result = await tinybird.topPages.query({
+      start_date: startDate,
+      end_date: endDate,
+      limit: 10,
+    });
+
+    return NextResponse.json(result.data);
+  } catch (error) {
+    console.error("Query failed:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch analytics" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Event Tracking
+
+Ingest events from your application:
+
+```typescript
+// lib/analytics.ts
+import { tinybird, type PageViewsRow } from "@tinybird/client";
+
+export async function trackPageView(data: {
+  pathname: string;
+  sessionId: string;
+  country?: string | null;
+}) {
+  const row: PageViewsRow = {
+    timestamp: new Date().toISOString(),
+    pathname: data.pathname,
+    session_id: data.sessionId,
+    country: data.country || null,
+  };
+
+  try {
+    await tinybird.pageViews.ingest(row);
+  } catch (error) {
+    console.error("Failed to track page view:", error);
+    // Handle error appropriately
+  }
+}
+```
+
+### React Hook
+
+Fetch analytics in a React component:
+
+```typescript
+// hooks/useTopPages.ts
+import { useState, useEffect } from "react";
+import type { TopPagesOutput } from "@tinybird/client";
+
+export function useTopPages(startDate: string, endDate: string) {
+  const [data, setData] = useState<TopPagesOutput[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        const response = await fetch(
+          `/api/analytics?start_date=${startDate}&end_date=${endDate}`
+        );
+        const result = await response.json();
+        setData(result);
+        setError(null);
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [startDate, endDate]);
+
+  return { data, loading, error };
+}
+```
+
+### Batch Processing
+
+Process and ingest large datasets:
+
+```typescript
+import { tinybird, type EventsRow } from "@tinybird/client";
+
+async function importEvents(events: any[]) {
+  const BATCH_SIZE = 1000;
+  
+  for (let i = 0; i < events.length; i += BATCH_SIZE) {
+    const batch = events.slice(i, i + BATCH_SIZE);
+    
+    const rows: EventsRow[] = batch.map((event) => ({
+      timestamp: event.timestamp,
+      event_type: event.type,
+      user_id: event.userId,
+      properties: JSON.stringify(event.properties),
+      session_id: event.sessionId || null,
+    }));
+
+    await tinybird.events.ingest(rows);
+    console.log(`Ingested batch ${i / BATCH_SIZE + 1}`);
+  }
+}
+```
+
+## Error Handling
+
+Handle errors gracefully:
+
+```typescript
+import { tinybird } from "@tinybird/client";
+
+try {
+  const result = await tinybird.topPages.query({
+    start_date: "2024-01-01 00:00:00",
+    end_date: "2024-01-31 23:59:59",
+  });
+  
+  console.log(result.data);
+} catch (error) {
+  if (error instanceof Error) {
+    console.error("Query failed:", error.message);
+  }
+  
+  // Handle specific error types
+  if (error.status === 401) {
+    console.error("Authentication failed - check your token");
+  } else if (error.status === 404) {
+    console.error("Endpoint not found");
+  } else if (error.status >= 500) {
+    console.error("Server error - try again later");
+  }
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use path aliases">
+    Set up a path alias in `tsconfig.json` for clean imports:
+    ```json
+    {
+      "compilerOptions": {
+        "paths": {
+          "@tinybird/client": ["./src/tinybird/client.ts"]
+        }
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Export types from client">
+    Re-export all types from your client file for convenient imports.
+  </Step>
+  
+  <Step title="Handle BigInt properly">
+    Remember that `uint64` and `int64` types map to JavaScript `bigint`. Convert to numbers when needed:
+    ```typescript
+    const views = Number(row.views);
+    ```
+  </Step>
+  
+  <Step title="Use environment variables">
+    Never hardcode tokens. Always use environment variables:
+    ```typescript
+    token: process.env.TINYBIRD_TOKEN
+    ```
+  </Step>
+  
+  <Step title="Implement error handling">
+    Always wrap client calls in try-catch blocks for production code.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="JWT Tokens" icon="key" href="/guides/jwt-tokens">
+    Create secure, scoped tokens for client-side use
+  </Card>
+  <Card title="Next.js Integration" icon="react" href="/guides/nextjs-integration">
+    Set up the SDK in your Next.js project
+  </Card>
+</CardGroup>

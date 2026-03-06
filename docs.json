@@ -1,122 +1,136 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Tinybird TypeScript SDK",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#7c7c80",
+    "light": "#151c28",
+    "dark": "#f2f2f2"
   },
   "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/tinybirdco/tinybird-sdk-typescript"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/tinybirdco/tinybird-sdk-typescript"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/datasources",
+              "concepts/pipes",
+              "concepts/type-inference",
+              "concepts/connections"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/defining-datasources",
+              "guides/defining-pipes",
+              "guides/materialized-views",
+              "guides/copy-pipes",
+              "guides/sink-pipes",
+              "guides/type-safe-client",
+              "guides/jwt-tokens",
+              "guides/nextjs-integration"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "CLI Commands",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "cli/overview",
+              "cli/init",
+              "cli/dev",
+              "cli/build",
+              "cli/deploy",
+              "cli/migrate",
+              "cli/pull",
+              "cli/login",
+              "cli/branch",
+              "cli/info"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/config-file",
+              "configuration/environment-variables",
+              "configuration/local-development"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Schema Definitions",
             "pages": [
-              "api-reference/introduction"
+              "api/define-datasource",
+              "api/define-pipe",
+              "api/define-endpoint",
+              "api/define-materialized-view",
+              "api/define-copy-pipe",
+              "api/define-sink-pipe",
+              "api/define-connection",
+              "api/define-token",
+              "api/define-project"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Type Validators",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/types",
+              "api/params",
+              "api/engines"
+            ]
+          },
+          {
+            "group": "Runtime Client",
+            "pages": [
+              "api/tinybird-client",
+              "api/create-client",
+              "api/query",
+              "api/ingest",
+              "api/datasource-operations"
+            ]
+          },
+          {
+            "group": "Public API",
+            "pages": [
+              "api/tinybird-api",
+              "api/create-tinybird-api"
+            ]
+          },
+          {
+            "group": "Type Inference",
+            "pages": [
+              "api/infer-row",
+              "api/infer-params",
+              "api/infer-output"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

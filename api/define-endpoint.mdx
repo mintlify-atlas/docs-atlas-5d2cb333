@@ -1,0 +1,245 @@
+---
+title: 'defineEndpoint'
+description: 'Define a Tinybird API endpoint with full type safety'
+---
+
+## Function Signature
+
+```typescript
+function defineEndpoint<
+  TParams extends ParamsDefinition,
+  TOutput extends OutputDefinition
+>(
+  name: string,
+  options: EndpointOptions<TParams, TOutput>
+): PipeDefinition<TParams, TOutput>
+```
+
+Define a Tinybird endpoint that is exposed as an HTTP API. This is a convenience function that simplifies creating API endpoints compared to `definePipe` with `endpoint: true`.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The endpoint name. Must start with a letter or underscore and contain only alphanumeric characters and underscores.
+</ParamField>
+
+<ParamField path="options" type="EndpointOptions<TParams, TOutput>" required>
+  Endpoint configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="nodes" type="readonly NodeDefinition[]" required>
+      Array of SQL transformation nodes in the pipeline. At least one node is required.
+    </ParamField>
+
+    <ParamField path="output" type="OutputDefinition" required>
+      Output schema using type validators from `t.*`. Required for type safety.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description of the endpoint
+    </ParamField>
+
+    <ParamField path="params" type="ParamsDefinition">
+      Parameter definitions for query inputs using `p.*` validators
+    </ParamField>
+
+    <ParamField path="cache" type="object">
+      Cache configuration for the endpoint
+
+      <Expandable title="properties">
+        <ParamField path="enabled" type="boolean" required>
+          Whether caching is enabled
+        </ParamField>
+
+        <ParamField path="ttl" type="number">
+          Cache TTL in seconds
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="tokens" type="readonly PipeTokenConfig[]">
+      Access tokens for this endpoint. Can be inline definitions or references to defined tokens.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Type
+
+```typescript
+PipeDefinition<TParams, TOutput>
+```
+
+A pipe definition configured as an API endpoint with full type inference.
+
+## Usage Examples
+
+### Basic Endpoint
+
+```typescript
+import { defineEndpoint, node, p, t } from '@tinybirdco/sdk'
+
+export const topPages = defineEndpoint('top_pages', {
+  description: 'Get the most visited pages',
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+})
+```
+
+### With Caching
+
+```typescript
+import { defineEndpoint, node, t } from '@tinybirdco/sdk'
+
+export const stats = defineEndpoint('stats', {
+  description: 'Get overall statistics',
+  nodes: [
+    node({
+      name: 'aggregate',
+      sql: `
+        SELECT
+          count() as total_events,
+          uniq(user_id) as unique_users
+        FROM events
+      `,
+    }),
+  ],
+  output: {
+    total_events: t.uint64(),
+    unique_users: t.uint64(),
+  },
+  cache: {
+    enabled: true,
+    ttl: 300, // 5 minutes
+  },
+})
+```
+
+### Multi-Node Endpoint
+
+```typescript
+import { defineEndpoint, node, p, t } from '@tinybirdco/sdk'
+
+export const topEvents = defineEndpoint('top_events', {
+  description: 'Get top events by count',
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: 'filtered',
+      sql: `
+        SELECT *
+        FROM events
+        WHERE timestamp BETWEEN {{DateTime(start_date)}} AND {{DateTime(end_date)}}
+      `,
+    }),
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT
+          event_type,
+          count() as event_count
+        FROM filtered
+        GROUP BY event_type
+        ORDER BY event_count DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    event_type: t.string(),
+    event_count: t.uint64(),
+  },
+})
+```
+
+### With Access Tokens
+
+```typescript
+import { defineEndpoint, defineToken, node, t } from '@tinybirdco/sdk'
+
+const appToken = defineToken('app_read')
+
+export const publicStats = defineEndpoint('public_stats', {
+  nodes: [
+    node({
+      name: 'stats',
+      sql: 'SELECT count() as total FROM events',
+    }),
+  ],
+  output: { total: t.uint64() },
+  tokens: [{ token: appToken, scope: 'READ' }],
+})
+```
+
+## Type Inference
+
+Use `InferParams` and `InferOutputRow` to extract TypeScript types:
+
+```typescript
+import { type InferParams, type InferOutputRow } from '@tinybirdco/sdk'
+import { topPages } from './pipes'
+
+type TopPagesParams = InferParams<typeof topPages>
+// { start_date: string, end_date: string, limit?: number }
+
+type TopPagesOutput = InferOutputRow<typeof topPages>
+// { pathname: string, views: bigint }
+```
+
+## Using the Endpoint
+
+Once defined and synced to Tinybird, query the endpoint with the typed client:
+
+```typescript
+import { tinybird } from '@tinybird/client'
+
+// Type-safe queries with autocomplete
+const result = await tinybird.topPages.query({
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+  limit: 5,
+})
+
+// result.data is fully typed: { pathname: string, views: bigint }[]
+```
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="definePipe" icon="pipe" href="/api/define-pipe">
+    Create internal transformation pipes
+  </Card>
+  <Card title="defineMaterializedView" icon="database" href="/api/define-materialized-view">
+    Create materialized views
+  </Card>
+  <Card title="node" icon="circle-nodes" href="/api/define-pipe">
+    Create transformation nodes
+  </Card>
+  <Card title="Parameter Validators (p.*)" icon="sliders" href="/api/params">
+    Query parameter validators
+  </Card>
+</CardGroup>

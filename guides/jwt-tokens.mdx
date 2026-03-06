@@ -1,0 +1,469 @@
+---
+title: "JWT Tokens"
+description: "Create secure, scoped JWT tokens for frontend applications and multi-tenant access"
+---
+
+Create short-lived JWT tokens with specific scopes for secure, time-limited access to your Tinybird resources.
+
+## Why JWT Tokens?
+
+JWT tokens enable secure client-side access to Tinybird APIs:
+
+**Use JWT tokens for:**
+- Frontend applications that need direct API access
+- Multi-tenant applications with row-level security
+- Time-limited access with automatic expiration
+- Scoped permissions for specific resources
+
+**Benefits:**
+- No need to expose admin tokens to clients
+- Automatic expiration for security
+- Fine-grained access control
+- Row-level filtering with `fixed_params`
+
+## Creating JWT Tokens
+
+Use the `createClient()` API to create JWT tokens:
+
+```typescript
+import { createClient } from "@tinybirdco/sdk";
+
+const client = createClient({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_ADMIN_TOKEN!, // Requires ADMIN scope
+});
+
+// Create a JWT token with scoped access
+const { token } = await client.tokens.createJWT({
+  name: "user_123_session",
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_dashboard",
+      fixed_params: { user_id: 123 }, // Row-level security
+    },
+  ],
+});
+
+// Use the JWT token for queries
+const userClient = createClient({
+  baseUrl: "https://api.tinybird.co",
+  token, // The JWT
+});
+```
+
+## Scope Types
+
+JWT tokens support three scope types:
+
+### PIPES:READ
+
+Grant read access to a specific pipe endpoint:
+
+```typescript
+scopes: [
+  {
+    type: "PIPES:READ",
+    resource: "top_events",
+  },
+]
+```
+
+### DATASOURCES:READ
+
+Grant read access to a datasource:
+
+```typescript
+scopes: [
+  {
+    type: "DATASOURCES:READ",
+    resource: "events",
+  },
+]
+```
+
+With optional SQL filter:
+
+```typescript
+scopes: [
+  {
+    type: "DATASOURCES:READ",
+    resource: "events",
+    filter: "org_id = 'acme'", // SQL WHERE clause
+  },
+]
+```
+
+### DATASOURCES:APPEND
+
+Grant append/ingest access to a datasource:
+
+```typescript
+scopes: [
+  {
+    type: "DATASOURCES:APPEND",
+    resource: "events",
+  },
+]
+```
+
+## Fixed Parameters
+
+Use `fixed_params` to enforce row-level security on pipes:
+
+```typescript
+const { token } = await client.tokens.createJWT({
+  name: "user_session",
+  expiresAt: new Date(Date.now() + 3600 * 1000),
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_analytics",
+      fixed_params: {
+        user_id: currentUserId,
+        org_id: currentOrgId,
+      },
+    },
+  ],
+});
+```
+
+**Important:** Fixed parameters:
+- Are automatically injected into queries
+- Cannot be overridden by the client
+- Ensure users can only access their own data
+- Perfect for multi-tenant applications
+
+### Example with Fixed Params
+
+Pipe definition:
+
+```typescript
+export const userAnalytics = defineEndpoint("user_analytics", {
+  params: {
+    user_id: p.string(),
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+  },
+  nodes: [
+    node({
+      name: "filtered",
+      sql: `
+        SELECT *
+        FROM events
+        WHERE user_id = {{String(user_id)}}
+          AND timestamp BETWEEN {{DateTime(start_date)}} AND {{DateTime(end_date)}}
+      `,
+    }),
+  ],
+  output: {
+    timestamp: t.dateTime(),
+    event_type: t.string(),
+  },
+});
+```
+
+Server-side token creation:
+
+```typescript
+// Server: Create token with fixed user_id
+const { token } = await client.tokens.createJWT({
+  name: `user_${userId}_token`,
+  expiresAt: new Date(Date.now() + 3600 * 1000),
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_analytics",
+      fixed_params: { user_id: userId }, // Fixed by server
+    },
+  ],
+});
+```
+
+Client-side usage:
+
+```typescript
+// Client: Can only query their own data
+const result = await fetch(
+  `https://api.tinybird.co/v0/pipes/user_analytics.json?` +
+  `start_date=2024-01-01&end_date=2024-01-31`,
+  {
+    headers: { Authorization: `Bearer ${token}` },
+  }
+);
+
+// user_id is automatically set to the fixed value
+// Attempting to override user_id has no effect
+```
+
+## Rate Limiting
+
+Set rate limits on JWT tokens:
+
+```typescript
+const { token } = await client.tokens.createJWT({
+  name: "limited_access",
+  expiresAt: new Date(Date.now() + 3600 * 1000),
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "public_stats",
+    },
+  ],
+  limits: {
+    rps: 10, // 10 requests per second
+  },
+});
+```
+
+## Multiple Scopes
+
+Grant access to multiple resources:
+
+```typescript
+const { token } = await client.tokens.createJWT({
+  name: "multi_scope_token",
+  expiresAt: new Date(Date.now() + 3600 * 1000),
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_analytics",
+      fixed_params: { user_id: 123 },
+    },
+    {
+      type: "PIPES:READ",
+      resource: "user_settings",
+      fixed_params: { user_id: 123 },
+    },
+    {
+      type: "DATASOURCES:APPEND",
+      resource: "user_events",
+    },
+  ],
+});
+```
+
+## Complete Examples
+
+### Next.js API Route
+
+Create JWT tokens for authenticated users:
+
+```typescript
+// app/api/auth/tinybird-token/route.ts
+import { createClient } from "@tinybirdco/sdk";
+import { getServerSession } from "next-auth";
+import { NextResponse } from "next/server";
+
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_BASE_URL!,
+  token: process.env.TINYBIRD_ADMIN_TOKEN!,
+});
+
+export async function POST() {
+  const session = await getServerSession();
+  
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  try {
+    const { token } = await client.tokens.createJWT({
+      name: `user_${session.user.id}_${Date.now()}`,
+      expiresAt: new Date(Date.now() + 3600 * 1000), // 1 hour
+      scopes: [
+        {
+          type: "PIPES:READ",
+          resource: "user_analytics",
+          fixed_params: { user_id: session.user.id },
+        },
+        {
+          type: "DATASOURCES:APPEND",
+          resource: "user_events",
+        },
+      ],
+      limits: { rps: 100 },
+    });
+
+    return NextResponse.json({ token });
+  } catch (error) {
+    console.error("Failed to create JWT:", error);
+    return NextResponse.json(
+      { error: "Failed to create token" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### React Client
+
+Use JWT tokens in the frontend:
+
+```typescript
+// hooks/useTinybirdToken.ts
+import { useState, useEffect } from "react";
+
+export function useTinybirdToken() {
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchToken() {
+      try {
+        const response = await fetch("/api/auth/tinybird-token", {
+          method: "POST",
+        });
+        const data = await response.json();
+        setToken(data.token);
+      } catch (error) {
+        console.error("Failed to fetch token:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchToken();
+  }, []);
+
+  return { token, loading };
+}
+```
+
+```typescript
+// components/Analytics.tsx
+import { useTinybirdToken } from "@/hooks/useTinybirdToken";
+
+export function Analytics() {
+  const { token, loading } = useTinybirdToken();
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    async function fetchAnalytics() {
+      const response = await fetch(
+        `https://api.tinybird.co/v0/pipes/user_analytics.json?` +
+        `start_date=2024-01-01&end_date=2024-01-31`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const result = await response.json();
+      setData(result.data);
+    }
+
+    fetchAnalytics();
+  }, [token]);
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      <h1>Your Analytics</h1>
+      {/* Render data */}
+    </div>
+  );
+}
+```
+
+### Multi-Tenant SaaS
+
+Implement organization-level isolation:
+
+```typescript
+import { createClient } from "@tinybirdco/sdk";
+
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_BASE_URL!,
+  token: process.env.TINYBIRD_ADMIN_TOKEN!,
+});
+
+export async function createOrgToken(orgId: string, userId: string) {
+  const { token } = await client.tokens.createJWT({
+    name: `org_${orgId}_user_${userId}`,
+    expiresAt: new Date(Date.now() + 24 * 3600 * 1000), // 24 hours
+    scopes: [
+      {
+        type: "PIPES:READ",
+        resource: "org_analytics",
+        fixed_params: {
+          org_id: orgId,
+        },
+      },
+      {
+        type: "PIPES:READ",
+        resource: "team_performance",
+        fixed_params: {
+          org_id: orgId,
+        },
+      },
+      {
+        type: "DATASOURCES:APPEND",
+        resource: "org_events",
+      },
+    ],
+    limits: { rps: 50 },
+  });
+
+  return token;
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use short expiration times">
+    Set expiration to 1-24 hours. Refresh tokens as needed rather than using long-lived tokens.
+  </Step>
+  
+  <Step title="Always use fixed_params for user data">
+    Never trust client-side parameters for user identification. Always use `fixed_params` to enforce row-level security.
+  </Step>
+  
+  <Step title="Store admin tokens securely">
+    Keep admin tokens in environment variables, never in client-side code.
+  </Step>
+  
+  <Step title="Implement token refresh">
+    Create new tokens before old ones expire to maintain uninterrupted access.
+  </Step>
+  
+  <Step title="Set appropriate rate limits">
+    Use the `limits.rps` option to prevent abuse of client-side tokens.
+  </Step>
+  
+  <Step title="Use descriptive token names">
+    Include user/org IDs and timestamps in token names for easier debugging.
+  </Step>
+</Steps>
+
+## Security Considerations
+
+**DO:**
+- ✓ Create JWT tokens on the server-side only
+- ✓ Use `fixed_params` for user/org isolation
+- ✓ Set short expiration times
+- ✓ Implement rate limits
+- ✓ Validate user sessions before creating tokens
+
+**DON'T:**
+- ✗ Never expose admin tokens to clients
+- ✗ Never create JWT tokens in client-side code
+- ✗ Never trust user-provided parameters for access control
+- ✗ Never use JWT tokens without expiration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Type-Safe Client" icon="code" href="/guides/type-safe-client">
+    Learn how to use the Tinybird client
+  </Card>
+  <Card title="Next.js Integration" icon="react" href="/guides/nextjs-integration">
+    Set up the SDK in Next.js projects
+  </Card>
+</CardGroup>

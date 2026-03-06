@@ -1,0 +1,571 @@
+---
+title: "Next.js Integration"
+description: "Set up the Tinybird SDK in your Next.js project with concurrent development and path aliases"
+---
+
+Integrate the Tinybird SDK into your Next.js project for seamless development and type-safe analytics.
+
+## Quick Setup
+
+<Steps>
+  <Step title="Initialize Tinybird">
+    Run the init command in your Next.js project:
+    ```bash
+    npx tinybird init
+    ```
+    This creates:
+    - `tinybird.config.json` - Configuration file
+    - `src/tinybird/datasources.ts` - Define your datasources
+    - `src/tinybird/pipes.ts` - Define your pipes/endpoints
+    - `src/tinybird/client.ts` - Your typed Tinybird client
+  </Step>
+
+  <Step title="Add environment variables">
+    Create `.env.local` with your Tinybird token:
+    ```env
+    TINYBIRD_TOKEN=p.your_token_here
+    ```
+    The CLI automatically loads `.env.local` and `.env` files.
+  </Step>
+
+  <Step title="Configure path alias">
+    Add to your `tsconfig.json` for clean imports:
+    ```json
+    {
+      "compilerOptions": {
+        "paths": {
+          "@/*": ["./src/*"],
+          "@tinybird/client": ["./src/tinybird/client.ts"]
+        }
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Set up concurrent development">
+    Install `concurrently` for running Next.js and Tinybird together:
+    ```bash
+    npm install -D concurrently
+    ```
+    
+    Update your `package.json` scripts:
+    ```json
+    {
+      "scripts": {
+        "dev": "concurrently -n next,tinybird \"next dev\" \"tinybird dev\"",
+        "tinybird:build": "tinybird build",
+        "build": "tinybird deploy && next build"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Start development">
+    Run both Next.js and Tinybird sync together:
+    ```bash
+    npm run dev
+    ```
+    This starts:
+    - Next.js dev server on port 3000
+    - Tinybird file watcher for automatic sync
+  </Step>
+</Steps>
+
+## Project Structure
+
+Recommended structure for Next.js + Tinybird:
+
+```
+your-nextjs-app/
+├── src/
+│   ├── app/
+│   │   └── api/
+│   │       └── analytics/
+│   │           └── route.ts          # API routes using Tinybird
+│   ├── tinybird/
+│   │   ├── datasources.ts            # Datasource definitions
+│   │   ├── pipes.ts                  # Pipe/endpoint definitions
+│   │   └── client.ts                 # Typed Tinybird client
+│   └── lib/
+│       └── analytics.ts              # Analytics helpers
+├── .env.local                        # Tinybird token (gitignored)
+├── tinybird.config.json              # Tinybird configuration
+├── tsconfig.json                     # TypeScript config with path aliases
+└── package.json                      # Scripts for concurrent dev
+```
+
+## Creating API Routes
+
+Use Tinybird in Next.js API routes:
+
+### App Router (Next.js 13+)
+
+```typescript
+// app/api/analytics/top-pages/route.ts
+import { tinybird } from "@tinybird/client";
+import { NextResponse } from "next/server";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const startDate = searchParams.get("start_date");
+  const endDate = searchParams.get("end_date");
+  const limit = searchParams.get("limit");
+
+  if (!startDate || !endDate) {
+    return NextResponse.json(
+      { error: "Missing required parameters" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const result = await tinybird.topPages.query({
+      start_date: startDate,
+      end_date: endDate,
+      limit: limit ? parseInt(limit) : undefined,
+    });
+
+    return NextResponse.json(result.data);
+  } catch (error) {
+    console.error("Query failed:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch analytics" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Pages Router (Next.js 12)
+
+```typescript
+// pages/api/analytics/top-pages.ts
+import { tinybird } from "@tinybird/client";
+import type { NextApiRequest, NextApiResponse } from "next";
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const { start_date, end_date, limit } = req.query;
+
+  if (!start_date || !end_date) {
+    return res.status(400).json({ error: "Missing required parameters" });
+  }
+
+  try {
+    const result = await tinybird.topPages.query({
+      start_date: start_date as string,
+      end_date: end_date as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+    });
+
+    return res.status(200).json(result.data);
+  } catch (error) {
+    console.error("Query failed:", error);
+    return res.status(500).json({ error: "Failed to fetch analytics" });
+  }
+}
+```
+
+## Server Components
+
+Query Tinybird directly in React Server Components:
+
+```typescript
+// app/dashboard/page.tsx
+import { tinybird } from "@tinybird/client";
+
+export default async function DashboardPage() {
+  const result = await tinybird.topPages.query({
+    start_date: "2024-01-01 00:00:00",
+    end_date: "2024-01-31 23:59:59",
+    limit: 10,
+  });
+
+  return (
+    <div>
+      <h1>Top Pages</h1>
+      <ul>
+        {result.data.map((row) => (
+          <li key={row.pathname}>
+            {row.pathname}: {row.views.toString()} views
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+## Client Components
+
+Fetch data in client components:
+
+```typescript
+// components/TopPages.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import type { TopPagesOutput } from "@tinybird/client";
+
+export function TopPages() {
+  const [data, setData] = useState<TopPagesOutput[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const response = await fetch(
+          "/api/analytics/top-pages?" +
+          "start_date=2024-01-01&end_date=2024-01-31"
+        );
+        const result = await response.json();
+        setData(result);
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      <h2>Top Pages</h2>
+      <ul>
+        {data.map((row) => (
+          <li key={row.pathname}>
+            {row.pathname}: {row.views.toString()} views
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+## Event Tracking
+
+Implement analytics tracking:
+
+### Server-Side Tracking
+
+```typescript
+// app/actions/track.ts
+"use server";
+
+import { tinybird } from "@tinybird/client";
+
+export async function trackPageView(data: {
+  pathname: string;
+  sessionId: string;
+}) {
+  try {
+    await tinybird.pageViews.ingest({
+      timestamp: new Date().toISOString(),
+      pathname: data.pathname,
+      session_id: data.sessionId,
+      country: null, // Could get from headers
+    });
+  } catch (error) {
+    console.error("Failed to track page view:", error);
+  }
+}
+```
+
+### Client-Side Hook
+
+```typescript
+// hooks/usePageTracking.ts
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { v4 as uuidv4 } from "uuid";
+
+function getSessionId() {
+  if (typeof window === "undefined") return "";
+  
+  let sessionId = sessionStorage.getItem("session_id");
+  if (!sessionId) {
+    sessionId = uuidv4();
+    sessionStorage.setItem("session_id", sessionId);
+  }
+  return sessionId;
+}
+
+export function usePageTracking() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    async function track() {
+      await fetch("/api/track/pageview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pathname,
+          sessionId: getSessionId(),
+        }),
+      });
+    }
+
+    track();
+  }, [pathname]);
+}
+```
+
+### Tracking API Route
+
+```typescript
+// app/api/track/pageview/route.ts
+import { tinybird } from "@tinybird/client";
+import { NextResponse } from "next/server";
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { pathname, sessionId } = body;
+
+    await tinybird.pageViews.ingest({
+      timestamp: new Date().toISOString(),
+      pathname,
+      session_id: sessionId,
+      country: request.headers.get("cf-ipcountry") || null,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Tracking failed:", error);
+    return NextResponse.json(
+      { error: "Failed to track event" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+## Development Workflow
+
+### Local Development
+
+Run both services with automatic sync:
+
+```bash
+npm run dev
+```
+
+This runs:
+- **Next.js** - Serves your app and API routes
+- **Tinybird** - Watches for schema changes and syncs to Tinybird
+
+### Making Schema Changes
+
+1. Edit datasource or pipe definitions in TypeScript
+2. Save the file
+3. Tinybird CLI automatically syncs changes
+4. TypeScript types update automatically
+5. Use updated types in your Next.js code
+
+### Building for Production
+
+```bash
+# Deploy Tinybird resources and build Next.js
+npm run build
+
+# Or run separately
+npx tinybird deploy
+npm run build
+```
+
+## Environment Variables
+
+Manage tokens across environments:
+
+### Development (.env.local)
+
+```env
+TINYBIRD_TOKEN=p.dev_token_here
+TINYBIRD_BASE_URL=https://api.tinybird.co
+```
+
+### Production (Vercel/Deployment)
+
+Set environment variables in your deployment platform:
+
+```env
+TINYBIRD_TOKEN=p.prod_token_here
+TINYBIRD_BASE_URL=https://api.tinybird.co
+```
+
+### Multiple Environments
+
+```typescript
+// src/tinybird/client.ts
+import { Tinybird } from "@tinybirdco/sdk";
+import { pageViews } from "./datasources";
+import { topPages } from "./pipes";
+
+const isDevelopment = process.env.NODE_ENV === "development";
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: process.env.TINYBIRD_BASE_URL,
+});
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use concurrent development">
+    Always run `tinybird dev` alongside `next dev` using `concurrently` for the best development experience.
+  </Step>
+  
+  <Step title="Set up path aliases">
+    Use `@tinybird/client` path alias for consistent imports across your app.
+  </Step>
+  
+  <Step title="Keep tokens in environment variables">
+    Never commit `.env.local` - add it to `.gitignore`.
+  </Step>
+  
+  <Step title="Use Server Components for analytics">
+    Fetch analytics data in Server Components when possible to avoid exposing tokens to the client.
+  </Step>
+  
+  <Step title="Implement error boundaries">
+    Wrap analytics components in error boundaries to prevent tracking failures from breaking your app.
+  </Step>
+  
+  <Step title="Deploy Tinybird before Next.js">
+    Always run `tinybird deploy` before deploying Next.js to ensure schema is up-to-date.
+  </Step>
+</Steps>
+
+## Deployment
+
+### Vercel Deployment
+
+1. Set environment variables in Vercel dashboard:
+   - `TINYBIRD_TOKEN`
+   - `TINYBIRD_BASE_URL` (optional)
+
+2. Add build command:
+   ```bash
+   tinybird deploy && next build
+   ```
+
+3. Deploy:
+   ```bash
+   vercel
+   ```
+
+### Other Platforms
+
+For other platforms (Netlify, Railway, etc.):
+
+1. Set `TINYBIRD_TOKEN` environment variable
+2. Update build command to run `tinybird deploy` first
+3. Ensure Node.js 20+ is available
+
+## Complete Example
+
+A full Next.js app with Tinybird integration:
+
+```typescript
+// src/tinybird/datasources.ts
+import { defineDatasource, t, engine, type InferRow } from "@tinybirdco/sdk";
+
+export const pageViews = defineDatasource("page_views", {
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["timestamp"],
+  }),
+});
+
+export type PageViewsRow = InferRow<typeof pageViews>;
+```
+
+```typescript
+// src/tinybird/pipes.ts
+import { defineEndpoint, node, t, p, type InferOutputRow } from "@tinybirdco/sdk";
+
+export const topPages = defineEndpoint("top_pages", {
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT 10
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+export type TopPagesOutput = InferOutputRow<typeof topPages>;
+```
+
+```typescript
+// src/tinybird/client.ts
+import { Tinybird } from "@tinybirdco/sdk";
+import { pageViews, type PageViewsRow } from "./datasources";
+import { topPages, type TopPagesOutput } from "./pipes";
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+});
+
+export type { PageViewsRow, TopPagesOutput };
+```
+
+```typescript
+// app/api/analytics/route.ts
+import { tinybird } from "@tinybird/client";
+import { NextResponse } from "next/server";
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const result = await tinybird.topPages.query({
+    start_date: searchParams.get("start_date")!,
+    end_date: searchParams.get("end_date")!,
+  });
+  return NextResponse.json(result.data);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="JWT Tokens" icon="key" href="/guides/jwt-tokens">
+    Create secure tokens for client-side access
+  </Card>
+  <Card title="Type-Safe Client" icon="code" href="/guides/type-safe-client">
+    Learn more about the Tinybird client API
+  </Card>
+</CardGroup>

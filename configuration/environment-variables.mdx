@@ -1,0 +1,248 @@
+---
+title: Environment Variables
+description: Configure Tinybird tokens and settings using environment variables
+---
+
+The Tinybird TypeScript SDK supports environment variables for secure credential management and configuration.
+
+## Token Configuration
+
+### Using .env.local
+
+Store your Tinybird token in a `.env.local` file in your project root:
+
+```bash .env.local
+TINYBIRD_TOKEN=p.your_token_here
+```
+
+Reference it in your config file:
+
+```json tinybird.config.json
+{
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co"
+}
+```
+
+<Warning>
+Add `.env.local` to your `.gitignore` to prevent committing secrets to version control.
+</Warning>
+
+### Using .env
+
+The SDK also loads `.env` files. Priority order:
+
+1. `.env.local` (highest priority)
+2. `.env`
+
+Existing `process.env` values are preserved and not overwritten.
+
+```bash .env
+TINYBIRD_TOKEN=p.default_token
+TINYBIRD_BASE_URL=https://api.tinybird.co
+```
+
+## Environment Variable Interpolation
+
+The SDK supports `${VAR_NAME}` syntax for interpolating environment variables in JSON config files:
+
+```json tinybird.config.json
+{
+  "include": ["src/tinybird/datasources.ts"],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "${TINYBIRD_BASE_URL}"
+}
+```
+
+### Validation
+
+If a referenced environment variable is not set, the SDK will throw an error:
+
+```
+Error: Environment variable TINYBIRD_TOKEN is not set
+```
+
+This ensures you don't accidentally deploy without proper credentials.
+
+## JavaScript Config Files
+
+For `.mjs` and `.cjs` config files, use `process.env` directly:
+
+```javascript tinybird.config.mjs
+/** @type {import("@tinybirdco/sdk").TinybirdConfig} */
+export default {
+  include: ["src/tinybird/datasources.ts"],
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: process.env.TINYBIRD_BASE_URL || "https://api.tinybird.co",
+  devMode: process.env.NODE_ENV === "production" ? "branch" : "local",
+};
+```
+
+This provides more flexibility for dynamic configuration.
+
+## Multiple Tokens
+
+You can use different tokens for different environments:
+
+```bash .env.local
+TINYBIRD_TOKEN=p.your_dev_token
+TINYBIRD_ADMIN_TOKEN=p.your_admin_token
+TINYBIRD_BRANCH_TOKEN=p.your_branch_token
+```
+
+Then switch tokens in your application:
+
+```typescript
+import { createTinybirdApi } from "@tinybirdco/sdk";
+
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+});
+
+// Override token per request
+await api.request("/v1/workspace", {
+  token: process.env.TINYBIRD_BRANCH_TOKEN,
+});
+```
+
+## Next.js Integration
+
+Next.js automatically loads `.env.local` and `.env` files. The Tinybird CLI does too, so no additional setup is needed:
+
+```json package.json
+{
+  "scripts": {
+    "dev": "concurrently -n next,tinybird \"next dev\" \"tinybird dev\""
+  }
+}
+```
+
+Both Next.js and the Tinybird CLI will use the same environment variables.
+
+## Token Scopes
+
+Different operations require different token scopes:
+
+<CardGroup cols={2}>
+  <Card title="READ" icon="eye">
+    Query datasources and endpoints
+  </Card>
+  <Card title="APPEND" icon="plus">
+    Ingest data into datasources
+  </Card>
+  <Card title="ADMIN" icon="lock">
+    Create JWT tokens, manage resources
+  </Card>
+  <Card title="DATASOURCES:WRITE" icon="pen">
+    Create and modify datasources
+  </Card>
+</CardGroup>
+
+Ensure your token has the appropriate scopes for your operations.
+
+## Creating Tokens
+
+### Via CLI
+
+Use the interactive login flow to create and store tokens:
+
+```bash
+npx tinybird login
+```
+
+This:
+1. Opens your browser for authentication
+2. Saves the token to `.env.local`
+3. Updates `baseUrl` in your config if needed
+
+### Via Dashboard
+
+Create tokens manually in the [Tinybird dashboard](https://app.tinybird.co):
+
+1. Go to **Tokens** section
+2. Click **Create Token**
+3. Select scopes
+4. Copy the token to `.env.local`
+
+## JWT Tokens
+
+Create short-lived JWT tokens for frontend applications:
+
+```typescript
+import { createClient } from "@tinybirdco/sdk";
+
+const client = createClient({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_ADMIN_TOKEN!, // Requires ADMIN scope
+});
+
+const { token } = await client.tokens.createJWT({
+  name: "user_123_session",
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+  scopes: [
+    {
+      type: "PIPES:READ",
+      resource: "user_dashboard",
+      fixed_params: { user_id: 123 },
+    },
+  ],
+});
+```
+
+<Info>
+JWT tokens are useful for multi-tenant applications requiring row-level security or time-limited access from browsers.
+</Info>
+
+## Environment-Specific Configuration
+
+Use different `.env` files per environment:
+
+```bash
+# Development
+.env.local
+TINYBIRD_TOKEN=p.dev_token
+
+# Staging
+.env.staging
+TINYBIRD_TOKEN=p.staging_token
+
+# Production
+.env.production
+TINYBIRD_TOKEN=p.prod_token
+```
+
+Load the appropriate file based on your deployment environment.
+
+## CI/CD Integration
+
+In CI/CD pipelines, set environment variables directly rather than using `.env` files:
+
+```bash
+export TINYBIRD_TOKEN=p.your_ci_token
+npx tinybird deploy
+```
+
+Or configure them in your CI/CD platform:
+
+- **GitHub Actions**: Repository secrets
+- **GitLab CI**: CI/CD variables
+- **Vercel**: Environment variables
+- **Netlify**: Build environment variables
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Never commit tokens" icon="ban">
+    Add `.env.local` and `.env` to `.gitignore`
+  </Card>
+  <Card title="Use token rotation" icon="arrows-rotate">
+    Regularly rotate tokens in production
+  </Card>
+  <Card title="Limit token scopes" icon="shield">
+    Use minimum required scopes for each token
+  </Card>
+  <Card title="Use JWT for clients" icon="clock">
+    Create short-lived JWT tokens for frontend apps
+  </Card>
+</CardGroup>

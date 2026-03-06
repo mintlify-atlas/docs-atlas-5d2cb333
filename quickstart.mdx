@@ -1,80 +1,341 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first typed data pipeline with the Tinybird TypeScript SDK
 ---
 
-## Get started in three steps
+This quickstart guide will walk you through creating a complete data pipeline: from defining a datasource to querying data with full type safety.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before starting, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- Node.js 20 LTS or later installed
+- Completed the [installation](/installation) steps
+- Run `npx tinybird init` to initialize your project
 
-### Step 2: Deploy your changes
+## Step 1: Define a Datasource
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+Open `src/tinybird/datasources.ts` and define your first datasource. We'll create a datasource to track page views:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+```typescript src/tinybird/datasources.ts
+import { defineDatasource, t, engine, type InferRow } from "@tinybirdco/sdk";
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+export const pageViews = defineDatasource("page_views", {
+  description: "Page view tracking data",
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+    country: t.string().lowCardinality().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["pathname", "timestamp"],
+  }),
+});
 
-### Step 3: Go live
+// Export row type for ingestion
+export type PageViewsRow = InferRow<typeof pageViews>;
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<Tip>
+The `InferRow` type utility extracts the TypeScript type from your schema definition, giving you type-safe ingestion.
+</Tip>
 
-## Next steps
+### Understanding the Schema
 
-Now that you have your docs running, explore these key features:
+- `t.dateTime()` - Timestamp column for time-series data
+- `t.string()` - String columns for text data
+- `.lowCardinality()` - Optimization for columns with few unique values
+- `.nullable()` - Makes the field optional
 
-<CardGroup cols={2}>
+## Step 2: Define an Endpoint
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+Now create a query endpoint in `src/tinybird/pipes.ts`:
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+```typescript src/tinybird/pipes.ts
+import { defineEndpoint, node, t, p, type InferParams, type InferOutputRow } from "@tinybirdco/sdk";
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+export const topPages = defineEndpoint("top_pages", {
+  description: "Get the most visited pages",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+// Export endpoint types
+export type TopPagesParams = InferParams<typeof topPages>;
+export type TopPagesOutput = InferOutputRow<typeof topPages>;
+```
 
-</CardGroup>
+### Understanding Parameters
+
+- `p.dateTime()` - Required datetime parameter
+- `p.int32().optional(10)` - Optional parameter with default value of 10
+- `{{DateTime(start_date)}}` - Parameter placeholder in SQL
+- `{{Int32(limit, 10)}}` - Parameter with inline default
+
+## Step 3: Create Your Client
+
+Update `src/tinybird/client.ts` to export your typed client:
+
+```typescript src/tinybird/client.ts
+import { Tinybird } from "@tinybirdco/sdk";
+import { pageViews, type PageViewsRow } from "./datasources";
+import { topPages, type TopPagesParams, type TopPagesOutput } from "./pipes";
+
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+});
+
+// Re-export types for convenience
+export type { PageViewsRow, TopPagesParams, TopPagesOutput };
+export { pageViews, topPages };
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The `Tinybird` class automatically infers all types from your datasource and pipe definitions, providing full autocomplete in your IDE.
 </Note>
+
+## Step 4: Configure Path Alias (Optional)
+
+For easier imports, add a path alias to your `tsconfig.json`:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "@tinybird/client": ["./src/tinybird/client.ts"]
+    }
+  }
+}
+```
+
+This lets you import with:
+
+```typescript
+import { tinybird } from "@tinybird/client";
+```
+
+Instead of:
+
+```typescript
+import { tinybird } from "../../src/tinybird/client";
+```
+
+## Step 5: Start Development Mode
+
+Run the dev command to watch your schema files and automatically sync changes to Tinybird:
+
+```bash
+npx tinybird dev
+```
+
+You should see output like:
+
+```
+✓ Connected to Tinybird workspace
+✓ Synced datasource: page_views
+✓ Synced endpoint: top_pages
+👀 Watching for changes...
+```
+
+<Tip>
+Dev mode only works on feature branches (not main) to prevent accidental production changes. Use `tinybird deploy` for production deployments.
+</Tip>
+
+## Step 6: Ingest Data
+
+Now use your typed client to ingest data. Create a new file or use an API route:
+
+```typescript
+import { tinybird, type PageViewsRow } from "@tinybird/client";
+
+// Type-safe data ingestion
+await tinybird.pageViews.ingest({
+  timestamp: "2024-01-15 10:30:00",
+  pathname: "/home",
+  session_id: "abc123",
+  country: "US",
+});
+
+// Your IDE will provide autocomplete for all fields
+// TypeScript will error if you pass invalid data types
+```
+
+### Batch Ingestion
+
+For better performance, ingest multiple rows at once:
+
+```typescript
+import { tinybird } from "@tinybird/client";
+
+const events = [
+  {
+    timestamp: "2024-01-15 10:30:00",
+    pathname: "/home",
+    session_id: "session_1",
+    country: "US",
+  },
+  {
+    timestamp: "2024-01-15 10:31:00",
+    pathname: "/pricing",
+    session_id: "session_2",
+    country: "GB",
+  },
+];
+
+await tinybird.pageViews.ingest(events);
+```
+
+## Step 7: Query Data
+
+Query your endpoint with full type safety:
+
+```typescript
+import { tinybird, type TopPagesOutput } from "@tinybird/client";
+
+// Type-safe queries with autocomplete
+const result = await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+  limit: 5,
+});
+
+// result.data is fully typed: { pathname: string, views: bigint }[]
+result.data.forEach((row: TopPagesOutput) => {
+  console.log(`${row.pathname}: ${row.views} views`);
+});
+```
+
+<Tip>
+Your IDE will provide autocomplete for query parameters and result fields. TypeScript catches type errors at compile time!
+</Tip>
+
+## Step 8: Additional Datasource Operations
+
+The SDK provides several methods for managing datasource data:
+
+```typescript
+import { tinybird } from "@tinybird/client";
+
+// Append rows from a remote file
+await tinybird.pageViews.append({
+  url: "https://example.com/page_views.csv",
+});
+
+// Replace all rows from a remote file
+await tinybird.pageViews.replace({
+  url: "https://example.com/page_views_full_snapshot.csv",
+});
+
+// Delete matching rows
+await tinybird.pageViews.delete({
+  deleteCondition: "country = 'XX'",
+});
+
+// Preview matching rows without deleting (dry run)
+await tinybird.pageViews.delete({
+  deleteCondition: "country = 'XX'",
+  dryRun: true,
+});
+
+// Remove all rows from the datasource
+await tinybird.pageViews.truncate();
+```
+
+<Warning>
+Be careful with `delete` and `truncate` operations - they permanently remove data. Always test with `dryRun: true` first.
+</Warning>
+
+## Next.js Integration
+
+For Next.js projects, run Tinybird dev alongside your Next.js dev server:
+
+### Install Concurrently
+
+```bash
+npm install --save-dev concurrently
+```
+
+### Update package.json
+
+```json package.json
+{
+  "scripts": {
+    "dev": "concurrently -n next,tinybird \"next dev\" \"tinybird dev\"",
+    "tinybird:build": "tinybird build"
+  }
+}
+```
+
+Now `npm run dev` starts both servers together!
+
+<Tip>
+The CLI automatically loads `.env.local` and `.env` files, so no additional setup is needed.
+</Tip>
+
+## What You've Built
+
+Congratulations! You've created a complete typed data pipeline:
+
+<Steps>
+  <Step title="Defined a Datasource">
+    Created a typed schema for page view tracking
+  </Step>
+  
+  <Step title="Created an Endpoint">
+    Built a query to get the most visited pages
+  </Step>
+  
+  <Step title="Generated a Client">
+    Got a fully-typed client with autocomplete
+  </Step>
+  
+  <Step title="Ingested Data">
+    Added data with type-safe ingestion
+  </Step>
+  
+  <Step title="Queried Data">
+    Retrieved results with full type inference
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that you have a working pipeline, explore more advanced features:
+
+<CardGroup cols={2}>
+  <Card title="Schema Types" icon="database" href="/api/types">
+    Learn about all available schema types and modifiers
+  </Card>
+  <Card title="Endpoints" icon="plug" href="/api/define-endpoint">
+    Create advanced query endpoints with complex SQL
+  </Card>
+  <Card title="Connections" icon="link" href="/concepts/connections">
+    Connect to Kafka, S3, and other data sources
+  </Card>
+  <Card title="CLI Commands" icon="terminal" href="/cli/overview">
+    Master the CLI for development and deployment
+  </Card>
+</CardGroup>

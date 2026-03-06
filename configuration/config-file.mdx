@@ -1,0 +1,201 @@
+---
+title: Configuration File
+description: Configure your Tinybird project with tinybird.config.json or JavaScript config files
+---
+
+The Tinybird TypeScript SDK uses a configuration file to define your project settings, resource locations, and API credentials.
+
+## Config File Formats
+
+The SDK supports multiple config file formats, checked in this priority order:
+
+<CardGroup cols={2}>
+  <Card title="tinybird.config.mjs" icon="js">
+    ESM JavaScript config with dynamic logic
+  </Card>
+  <Card title="tinybird.config.cjs" icon="js">
+    CommonJS JavaScript config with dynamic logic
+  </Card>
+  <Card title="tinybird.config.json" icon="brackets-curly">
+    Standard JSON config (default for new projects)
+  </Card>
+  <Card title="tinybird.json" icon="file">
+    Legacy JSON config (backward compatible)
+  </Card>
+</CardGroup>
+
+## JSON Configuration
+
+The default format for new projects. Create a `tinybird.config.json` in your project root:
+
+```json
+{
+  "include": [
+    "src/tinybird/datasources.ts",
+    "src/tinybird/pipes.ts",
+    "src/tinybird/legacy.datasource",
+    "src/tinybird/legacy.pipe"
+  ],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co",
+  "devMode": "branch"
+}
+```
+
+## JavaScript Configuration
+
+For projects needing dynamic configuration or runtime logic, use `.mjs` or `.cjs` files:
+
+```javascript tinybird.config.mjs
+/** @type {import("@tinybirdco/sdk").TinybirdConfig} */
+export default {
+  include: [
+    "src/tinybird/datasources.ts",
+    "src/tinybird/pipes.ts",
+    "src/tinybird/endpoints.ts",
+  ],
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: "https://api.europe-west2.gcp.tinybird.co",
+  devMode: "branch",
+};
+```
+
+```javascript tinybird.config.cjs
+/** @type {import("@tinybirdco/sdk").TinybirdConfig} */
+module.exports = {
+  include: ["src/tinybird/datasources.ts", "src/tinybird/pipes.ts"],
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: "https://api.tinybird.co",
+  devMode: "branch",
+};
+```
+
+## Configuration Options
+
+### include
+
+**Type:** `string[]` (required)
+
+Array of file paths or glob patterns to scan for datasources, pipes, and other Tinybird resources.
+
+Supports:
+- Direct file paths: `"src/tinybird/datasources.ts"`
+- Glob patterns: `"src/tinybird/**/*.ts"`
+- TypeScript files: `.ts`
+- Legacy datafiles: `.datasource`, `.pipe`, `.connection`
+
+```json
+{
+  "include": [
+    "src/tinybird/datasources.ts",
+    "src/tinybird/pipes.ts",
+    "src/tinybird/**/*.datasource",
+    "src/tinybird/**/*.pipe"
+  ]
+}
+```
+
+<Info>
+You can mix TypeScript files with raw `.datasource` and `.pipe` files for incremental migration from legacy Tinybird projects.
+</Info>
+
+### token
+
+**Type:** `string` (required)
+
+Your Tinybird API token. Supports environment variable interpolation using `${VAR_NAME}` syntax.
+
+```json
+{
+  "token": "${TINYBIRD_TOKEN}"
+}
+```
+
+See [Environment Variables](/configuration/environment-variables) for token configuration details.
+
+### baseUrl
+
+**Type:** `string`  
+**Default:** `"https://api.tinybird.co"`
+
+Tinybird API base URL. Use the appropriate URL for your region:
+
+| Region | Base URL |
+|--------|----------|
+| EU (default) | `https://api.tinybird.co` |
+| US East | `https://api.us-east.tinybird.co` |
+| GCP Europe West 2 | `https://api.europe-west2.gcp.tinybird.co` |
+
+```json
+{
+  "baseUrl": "https://api.us-east.tinybird.co"
+}
+```
+
+### devMode
+
+**Type:** `"branch"` \| `"local"`  
+**Default:** `"branch"`
+
+Development mode for the SDK:
+
+- **`"branch"`**: Uses Tinybird cloud with branch-based development
+- **`"local"`**: Uses local Docker container for offline development
+
+```json
+{
+  "devMode": "branch"
+}
+```
+
+See [Local Development](/configuration/local-development) for local mode setup.
+
+## Complete Example
+
+A full configuration with all options:
+
+```json tinybird.config.json
+{
+  "include": [
+    "src/tinybird/datasources.ts",
+    "src/tinybird/pipes.ts",
+    "src/tinybird/connections.ts",
+    "src/tinybird/mvs.ts",
+    "src/tinybird/legacy/**/*.datasource",
+    "src/tinybird/legacy/**/*.pipe"
+  ],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co",
+  "devMode": "branch"
+}
+```
+
+## TypeScript Type Support
+
+JavaScript config files support TypeScript type checking via JSDoc:
+
+```javascript tinybird.config.mjs
+/** @type {import("@tinybirdco/sdk").TinybirdConfig} */
+export default {
+  include: ["src/tinybird/datasources.ts"],
+  token: process.env.TINYBIRD_TOKEN,
+  baseUrl: "https://api.tinybird.co",
+  devMode: "branch",
+};
+```
+
+This provides autocomplete and type validation in your editor.
+
+## Finding Config Files
+
+The SDK walks up the directory tree from your current working directory to find the first matching config file. This allows you to run commands from subdirectories.
+
+## Initializing Configuration
+
+Create a new configuration file with:
+
+```bash
+npx tinybird init
+```
+
+This creates `tinybird.config.json` and sets up your project structure.

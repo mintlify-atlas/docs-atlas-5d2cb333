@@ -1,97 +1,132 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Tinybird TypeScript SDK"
+description: "Define Tinybird datasources and pipes as TypeScript with full type inference"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #151c28 0%, #7c7c80 100%)',
+  padding: '48px 32px',
+  borderRadius: '4px',
+  marginBottom: '32px',
+  color: '#f2f2f2'
+}}>
+  <h1 style={{
+    fontSize: '28px',
+    fontWeight: '700',
+    marginBottom: '16px',
+    fontFamily: 'Arial, sans-serif'
+  }}>Tinybird TypeScript SDK</h1>
+  <p style={{
+    fontSize: '14px',
+    fontWeight: '400',
+    marginBottom: '24px',
+    fontFamily: 'Arial, sans-serif'
+  }}>
+    A TypeScript-first SDK for defining Tinybird datasources, pipes, and queries with full type inference and CLI tooling.
+  </p>
+  <a href="/quickstart" style={{
+    display: 'inline-block',
+    backgroundColor: '#135bdd',
+    color: '#ffffff',
+    padding: '12px 24px',
+    borderRadius: '4px',
+    textDecoration: 'none',
+    fontWeight: '400',
+    fontSize: '14px',
+    fontFamily: 'Arial, sans-serif'
+  }}>Get Started →</a>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Type-Safe Schemas" icon="shield-check">
+    Define datasources and pipes in TypeScript with full type inference for schemas, parameters, and outputs.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="CLI Tooling" icon="terminal">
+    Built-in CLI with dev mode, build, deploy commands, and branch-based development workflow.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Runtime Client" icon="bolt">
+    Type-safe client for querying endpoints and ingesting data with automatic parameter validation.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="External Connections" icon="plug">
+    First-class support for Kafka, S3, and GCS connections with materialized views and sink pipes.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Example
 
-Everything you need to create world-class documentation.
+```typescript
+import { defineDatasource, defineEndpoint, t, p, engine, node } from "@tinybirdco/sdk";
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+// Define a datasource
+export const pageViews = defineDatasource("page_views", {
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+    country: t.string().lowCardinality().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["pathname", "timestamp"],
+  }),
+});
 
-## Need inspiration?
+// Define an endpoint
+export const topPages = defineEndpoint("top_pages", {
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+```
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Get Started
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the SDK and set up your project
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first type-safe Tinybird project
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/define-datasource">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>
+
+## Learn More
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/datasources">
+    Understand datasources, pipes, and type inference
+  </Card>
+  <Card title="CLI Commands" icon="terminal" href="/cli/overview">
+    Master the CLI for development and deployment
+  </Card>
+  <Card title="Guides" icon="map" href="/guides/defining-datasources">
+    Step-by-step guides for common workflows
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/config-file">
+    Configure your project and environment
+  </Card>
+</CardGroup>

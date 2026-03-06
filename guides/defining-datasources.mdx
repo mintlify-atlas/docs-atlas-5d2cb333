@@ -1,0 +1,249 @@
+---
+title: "Defining Datasources"
+description: "Learn how to define datasources with schemas, engines, indexes, and access tokens"
+---
+
+Datasources are tables in Tinybird that store your data. Define them in TypeScript with full type safety.
+
+## Basic Datasource
+
+Create a datasource with a schema and engine configuration:
+
+```typescript
+import { defineDatasource, t, engine, type InferRow } from "@tinybirdco/sdk";
+
+export const pageViews = defineDatasource("page_views", {
+  description: "Page view tracking data",
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+    country: t.string().lowCardinality().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["pathname", "timestamp"],
+  }),
+});
+
+// Export row type for ingestion
+export type PageViewsRow = InferRow<typeof pageViews>;
+```
+
+## Schema Types
+
+Use `t.*` validators to define column types:
+
+### String Types
+
+```typescript
+schema: {
+  name: t.string(),
+  id: t.uuid(),
+  code: t.fixedString(3),
+}
+```
+
+### Number Types
+
+```typescript
+schema: {
+  count: t.int32(),
+  amount: t.float64(),
+  big_number: t.uint64(),
+  price: t.decimal(10, 2),
+}
+```
+
+### Date/Time Types
+
+```typescript
+schema: {
+  created_at: t.dateTime(),
+  updated_at: t.dateTime64(3),
+  birth_date: t.date(),
+}
+```
+
+### Complex Types
+
+```typescript
+schema: {
+  tags: t.array(t.string()),
+  metadata: t.map(t.string(), t.string()),
+}
+```
+
+### Type Modifiers
+
+```typescript
+schema: {
+  optional_field: t.string().nullable(),
+  category: t.string().lowCardinality(),
+  status: t.string().default("pending"),
+}
+```
+
+## Engine Configuration
+
+Choose the right engine for your use case:
+
+### MergeTree (Default)
+
+Best for most use cases:
+
+```typescript
+engine: engine.mergeTree({
+  sortingKey: ["user_id", "timestamp"],
+  partitionKey: "toYYYYMM(timestamp)",
+  ttl: "timestamp + INTERVAL 90 DAY",
+})
+```
+
+### ReplacingMergeTree
+
+For upserts and deduplication:
+
+```typescript
+engine: engine.replacingMergeTree({
+  sortingKey: ["id"],
+  version: "updated_at",
+})
+```
+
+### SummingMergeTree
+
+For pre-aggregating numeric columns:
+
+```typescript
+engine: engine.summingMergeTree({
+  sortingKey: ["date", "category"],
+  columns: ["count", "total"],
+})
+```
+
+### AggregatingMergeTree
+
+For complex aggregates with aggregate functions:
+
+```typescript
+engine: engine.aggregatingMergeTree({
+  sortingKey: ["date"],
+})
+```
+
+## Secondary Indexes
+
+Add secondary indexes for faster queries on non-sorting-key columns:
+
+```typescript
+export const events = defineDatasource("events", {
+  schema: {
+    timestamp: t.dateTime(),
+    user_id: t.string(),
+    event_name: t.string(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["timestamp"],
+  }),
+  indexes: [
+    {
+      name: "user_idx",
+      expr: "user_id",
+      type: "set(100)",
+      granularity: 4,
+    },
+  ],
+});
+```
+
+## Access Tokens
+
+Control access to datasources with static tokens:
+
+```typescript
+import { defineToken, defineDatasource } from "@tinybirdco/sdk";
+
+const appToken = defineToken("app_read");
+const ingestToken = defineToken("ingest_token");
+
+export const events = defineDatasource("events", {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string(),
+  },
+  tokens: [
+    { token: appToken, scope: "READ" },
+    { token: ingestToken, scope: "APPEND" },
+  ],
+});
+```
+
+**Token Scopes:**
+- `READ` - Query access to the datasource
+- `APPEND` - Ingest/append data to the datasource
+
+## Complete Example
+
+A fully-configured datasource with all options:
+
+```typescript
+import { defineDatasource, t, engine, defineToken, type InferRow } from "@tinybirdco/sdk";
+
+const readToken = defineToken("analytics_read");
+const writeToken = defineToken("analytics_write");
+
+export const events = defineDatasource("events", {
+  description: "Event tracking data",
+  schema: {
+    timestamp: t.dateTime(),
+    event_id: t.uuid(),
+    user_id: t.string(),
+    event_type: t.string().lowCardinality(),
+    properties: t.string(), // JSON as string
+    session_id: t.string().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["user_id", "timestamp"],
+    partitionKey: "toYYYYMM(timestamp)",
+    ttl: "timestamp + INTERVAL 90 DAY",
+  }),
+  indexes: [
+    {
+      name: "event_type_idx",
+      expr: "event_type",
+      type: "set(100)",
+      granularity: 4,
+    },
+  ],
+  tokens: [
+    { token: readToken, scope: "READ" },
+    { token: writeToken, scope: "APPEND" },
+  ],
+});
+
+export type EventsRow = InferRow<typeof events>;
+```
+
+## Type Inference
+
+Export row types for type-safe ingestion:
+
+```typescript
+import { type InferRow } from "@tinybirdco/sdk";
+import { pageViews } from "./datasources";
+
+// Infer the row type
+type PageViewRow = InferRow<typeof pageViews>;
+// { timestamp: string, pathname: string, session_id: string, country: string | null }
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Defining Pipes" icon="pipe" href="/guides/defining-pipes">
+    Create SQL transformations and API endpoints
+  </Card>
+  <Card title="Type-Safe Client" icon="code" href="/guides/type-safe-client">
+    Use the Tinybird client for queries and ingestion
+  </Card>
+</CardGroup>

@@ -1,0 +1,367 @@
+---
+title: tinybird login
+description: Authenticate with Tinybird via browser
+---
+
+Opens your browser for authentication and saves credentials locally. Use this to set up authentication or switch workspaces.
+
+## Syntax
+
+```bash
+tinybird login
+```
+
+## How It Works
+
+1. Prompts to select region (if needed)
+2. Opens browser for OAuth authentication
+3. Redirects to Tinybird login page
+4. Receives authentication token
+5. Saves token to `.env.local`
+6. Updates `baseUrl` in config (if region changed)
+
+## Output Example
+
+```bash
+tinybird login
+```
+
+```text Terminal
+Select your Tinybird region:
+› Europe (api.tinybird.co)
+  US East (api.us-east.tinybird.co)
+
+Opening browser for authentication...
+
+✓ Logged in as user@example.com
+✓ Workspace: my-workspace
+✓ Region: Europe
+✓ Credentials saved to .env.local
+```
+
+## When to Use
+
+Run `login` when:
+
+- Setting up a new project (after `init`)
+- Token expired or invalid
+- Switching to different workspace
+- Working on a cloned repository
+- Changing regions
+
+## Authentication Flow
+
+### Browser Window
+
+Login opens your default browser:
+
+```text Browser
+https://ui.tinybird.co/auth/cli
+
+Sign in to Tinybird
+[Google] [GitHub] [Email]
+```
+
+### OAuth Callback
+
+After authentication, browser shows:
+
+```text Browser
+✓ Authentication successful!
+You can close this window and return to your terminal.
+```
+
+### Credentials Saved
+
+Token saved to `.env.local`:
+
+```bash .env.local
+TINYBIRD_TOKEN=p.eyJ1IjogIjEyMzQ1Njc4LTEyMzQtMTIzNC0xMjM0LTEyMzQ1Njc4OTBhYiIsICJpZCI6ICI5ODc2NTQzMi0xMjM0LTEyMzQtMTIzNC0xMjM0NTY3ODkwYWIifQ.abcdef123456
+```
+
+## Region Selection
+
+If no region configured, login prompts:
+
+```text
+Select your Tinybird region:
+› Europe (api.tinybird.co)
+  US East (api.us-east.tinybird.co)
+```
+
+Saved to config:
+
+```json tinybird.config.json
+{
+  "baseUrl": "https://api.tinybird.co"
+}
+```
+
+### Switching Regions
+
+To change region, delete `baseUrl` from config and re-login:
+
+```bash
+# Remove baseUrl
+edit tinybird.config.json
+
+# Login again (will prompt for region)
+tinybird login
+```
+
+## Token Storage
+
+Credentials are stored in:
+
+1. **`.env.local`** (recommended, gitignored)
+   ```bash
+   TINYBIRD_TOKEN=p.your_token_here
+   ```
+
+2. **`.env`** (fallback)
+   ```bash
+   TINYBIRD_TOKEN=p.your_token_here
+   ```
+
+3. **System environment** (CI/CD)
+   ```bash
+   export TINYBIRD_TOKEN=p.your_token_here
+   ```
+
+<Warning>
+  Never commit `.env.local` or `.env` files to version control. These contain your API token.
+</Warning>
+
+## Token Scopes
+
+Login tokens have **ADMIN** scope with full permissions:
+
+- Create/read/update/delete datasources
+- Create/read/update/delete pipes
+- Manage branches
+- Manage tokens
+- Deploy to production
+
+For limited access, create scoped tokens in the Tinybird dashboard.
+
+## Re-authentication
+
+Tokens don't expire, but you may need to re-authenticate:
+
+```bash
+# Token revoked or invalid
+tinybird build
+```
+
+```text Error
+Error: Invalid token
+```
+
+```bash
+# Login again
+tinybird login
+```
+
+## Workspace Switching
+
+To switch workspaces:
+
+```bash
+# Login with different account
+tinybird login
+
+# Select different workspace in browser
+```
+
+New token replaces old one in `.env.local`.
+
+## Headless/CI Environments
+
+For environments without browser access:
+
+### Set Token Manually
+
+```bash
+# Get token from Tinybird UI: https://ui.tinybird.co/tokens
+export TINYBIRD_TOKEN=p.your_token_here
+
+# Or create .env.local
+echo "TINYBIRD_TOKEN=p.your_token_here" > .env.local
+```
+
+### CI/CD Setup
+
+Set as secret in your CI platform:
+
+<CodeGroup>
+```yaml GitHub Actions
+env:
+  TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+```
+
+```yaml GitLab CI
+variables:
+  TINYBIRD_TOKEN: ${TINYBIRD_TOKEN}
+```
+
+```yaml CircleCI
+environment:
+  TINYBIRD_TOKEN: ${TINYBIRD_TOKEN}
+```
+</CodeGroup>
+
+## Examples
+
+### Initial Setup
+
+```bash
+# Initialize project
+npx tinybird init --skip-login
+
+# Authenticate
+tinybird login
+
+# Start development
+tinybird dev
+```
+
+### Cloned Repository
+
+```bash
+# Clone repo
+git clone https://github.com/your/repo
+cd repo
+
+# Install dependencies
+npm install
+
+# Authenticate
+tinybird login
+
+# Ready to develop
+tinybird dev
+```
+
+### Switch Workspace
+
+```bash
+# Login with different account
+tinybird login
+
+# Verify workspace
+tinybird info
+```
+
+### Refresh Credentials
+
+```bash
+# Token expired or revoked
+tinybird login
+```
+
+## Verification
+
+Verify login succeeded:
+
+```bash
+tinybird info
+```
+
+```text Output
+Workspace:
+  Name: my-workspace
+  Email: user@example.com
+  Region: Europe
+  Token: p.eyJ1IjogIjEyMzQ... (valid)
+```
+
+## Security Best Practices
+
+### Protect Tokens
+
+```bash
+# Ensure .env.local is gitignored
+echo ".env.local" >> .gitignore
+echo ".env" >> .gitignore
+
+# Verify
+git status  # Should not show .env files
+```
+
+### Token Rotation
+
+Regularly rotate tokens for security:
+
+1. Revoke old token in dashboard: https://ui.tinybird.co/tokens
+2. Run `tinybird login` to get new token
+3. Update CI secrets
+
+### Limited Scopes
+
+For production, use scoped tokens:
+
+```typescript
+// Create scoped token with limited permissions
+const { token } = await client.tokens.createJWT({
+  name: "ci-deploy",
+  expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+  scopes: [
+    { type: "DATASOURCES:READ", resource: "*" },
+    { type: "PIPES:READ", resource: "*" },
+  ],
+});
+```
+
+## Troubleshooting
+
+### Browser Doesn't Open
+
+```text
+Error: Could not open browser
+Please visit: https://ui.tinybird.co/auth/cli?code=ABC123
+```
+
+Manually open the URL in your browser.
+
+### No Config Found
+
+```text
+Error: No tinybird config found. Run 'npx tinybird init' first.
+```
+
+Run `init` before `login`:
+
+```bash
+npx tinybird init
+```
+
+### Authentication Timeout
+
+```text
+Error: Authentication timed out
+```
+
+Try again:
+
+```bash
+tinybird login
+```
+
+### Token Already Exists
+
+Login overwrites existing token:
+
+```text
+⚠ Existing credentials will be replaced
+✓ Credentials saved to .env.local
+```
+
+## Related Commands
+
+- **init**: Initialize project (includes optional login)
+- **info**: View current workspace and token
+- **deploy**: Deploy to production (requires valid token)
+
+<Note>
+  Login is interactive and requires browser access. For CI/CD, manually set `TINYBIRD_TOKEN` environment variable.
+</Note>

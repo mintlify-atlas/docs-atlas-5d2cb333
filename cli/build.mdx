@@ -1,0 +1,431 @@
+---
+title: tinybird build
+description: Build and push resources to a Tinybird branch
+---
+
+Builds your TypeScript resources and pushes them to a Tinybird branch (not main). This is a one-time operation without file watching.
+
+## Syntax
+
+```bash
+tinybird build [options]
+```
+
+## Basic Usage
+
+<CodeGroup>
+```bash Build to Branch
+tinybird build
+```
+
+```bash Preview Without Pushing
+tinybird build --dry-run
+```
+
+```bash Local Tinybird
+tinybird build --local
+```
+</CodeGroup>
+
+## How It Works
+
+1. Reads configuration from `tinybird.config.json`
+2. Bundles TypeScript files from `include` paths
+3. Validates all resource definitions
+4. Creates or reuses Tinybird branch
+5. Pushes resources to branch using `/v1/build` API
+6. Reports changes (created, modified, deleted)
+
+## Output Example
+
+```text
+Building resources...
+✓ Found 3 datasources, 5 pipes
+
+Pushing to branch: feature/new-endpoint
+✓ Branch created
+✓ Dashboard: https://ui.tinybird.co/workspace/branch/feature-new-endpoint
+
+Deployed in 1.2s:
+  Datasources:
+    • Created: user_events
+    • Changed: page_views
+    • Unchanged: sessions
+  
+  Pipes:
+    • Created: user_funnel
+    • Changed: top_pages
+    • Unchanged: analytics, dashboard, metrics
+```
+
+## Options
+
+### `--dry-run`
+
+Build resources without pushing to Tinybird:
+
+```bash
+tinybird build --dry-run
+```
+
+```text Output
+Building resources...
+✓ Found 3 datasources, 5 pipes
+
+Dry run - no changes pushed to Tinybird
+```
+
+Useful for:
+- Validating TypeScript definitions
+- Testing configuration changes
+- CI validation without side effects
+
+### `--local`
+
+Build to local Tinybird container:
+
+```bash
+tinybird build --local
+```
+
+Requires Docker:
+
+```bash
+docker run -d -p 7181:7181 --name tinybird-local tinybirdco/tinybird-local:latest
+```
+
+### `--branch`
+
+Explicitly use Tinybird cloud branches (default):
+
+```bash
+tinybird build --branch
+```
+
+## Branch Management
+
+### Automatic Branch Creation
+
+Build automatically creates branches from your git branch:
+
+```bash
+# On feature branch
+git checkout -b feature/user-analytics
+tinybird build
+```
+
+```text Output
+✓ Branch created: feature/user-analytics
+✓ Dashboard: https://ui.tinybird.co/workspace/branch/feature-user-analytics
+```
+
+### Reusing Existing Branches
+
+Subsequent builds reuse the same branch:
+
+```bash
+# Second build on same branch
+tinybird build
+```
+
+```text Output
+✓ Using existing branch: feature/user-analytics
+```
+
+### Branch Naming
+
+Git branch names are sanitized for Tinybird:
+
+- `feature/user-analytics` → `feature-user-analytics`
+- `fix/bug-123` → `fix-bug-123`
+- `update/deps` → `update-deps`
+
+## Main Branch Protection
+
+<Warning>
+  Build is **blocked on main branch** to prevent accidental production deployments.
+</Warning>
+
+```bash
+# On main branch
+tinybird build
+```
+
+```text Error
+Cannot deploy to main workspace with 'build' command.
+Use 'tinybird deploy' to deploy to production,
+or switch to a feature branch.
+```
+
+To deploy to production:
+
+```bash
+tinybird deploy
+```
+
+## Build Process
+
+### 1. Resource Discovery
+
+Finds all resources in `include` paths:
+
+```json tinybird.config.json
+{
+  "include": [
+    "src/tinybird.ts",
+    "tinybird/**/*.datasource",
+    "tinybird/**/*.pipe"
+  ]
+}
+```
+
+Supports:
+- TypeScript files with `define*` functions
+- Legacy `.datasource` files
+- Legacy `.pipe` files
+- Glob patterns
+
+### 2. Validation
+
+Validates before pushing:
+
+```typescript
+// Invalid: missing required fields
+export const invalid = defineDatasource("events", {
+  schema: { timestamp: t.dateTime() },
+  // Error: missing engine
+});
+```
+
+```text Error
+Build failed: Datasource 'events' missing required field: engine
+```
+
+### 3. Dependency Resolution
+
+Resolves dependencies automatically:
+
+```typescript
+// Connection defined first
+export const kafka = defineKafkaConnection("kafka", {...});
+
+// Datasource references connection
+export const events = defineDatasource("events", {
+  kafka: { connection: kafka },
+  ...
+});
+```
+
+Resources are pushed in correct order:
+1. Connections
+2. Datasources
+3. Pipes
+
+### 4. Incremental Updates
+
+Only changed resources are pushed:
+
+```text
+Deployed:
+  Datasources: 3 unchanged
+  Pipes: 1 changed, 4 unchanged
+```
+
+## Local Mode
+
+### Setup
+
+Start local Tinybird container:
+
+```bash
+docker run -d -p 7181:7181 \
+  --name tinybird-local \
+  tinybirdco/tinybird-local:latest
+```
+
+### Build to Local
+
+```bash
+tinybird build --local
+```
+
+```text Output
+✓ Local workspace ready: feature-user-analytics
+✓ Dashboard: http://localhost:7181/feature-user-analytics
+
+Deployed in 0.3s:
+  Datasources: 2 created
+  Pipes: 3 created
+```
+
+### Workspace per Branch
+
+Local mode creates workspace per git branch:
+
+- `main` → Uses authenticated workspace name
+- `feature/analytics` → `feature-analytics`
+- `fix/bug` → `fix-bug`
+
+Isolated workspaces for each branch.
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml .github/workflows/tinybird-ci.yaml
+name: Tinybird CI
+
+on:
+  pull_request:
+
+env:
+  TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm install
+      - run: npx tinybird build
+```
+
+### GitLab CI
+
+```yaml .gitlab-ci.yml
+tinybird_build:
+  stage: test
+  script:
+    - npm install
+    - npx tinybird build
+  variables:
+    TINYBIRD_TOKEN: $TINYBIRD_TOKEN
+```
+
+## Examples
+
+### Feature Branch Development
+
+```bash
+# Create feature branch
+git checkout -b feature/new-datasource
+
+# Add new datasource
+edit src/tinybird.ts
+
+# Build to branch
+tinybird build
+
+# View in dashboard
+open https://ui.tinybird.co/workspace/branch/feature-new-datasource
+```
+
+### Validate Before Commit
+
+```bash
+# Dry run to validate
+tinybird build --dry-run
+
+# If valid, commit
+git commit -m "Add user events datasource"
+```
+
+### Local Testing
+
+```bash
+# Test against local Tinybird
+tinybird build --local
+
+# Verify in local dashboard
+open http://localhost:7181
+```
+
+## Build Output
+
+### Success
+
+```text
+✓ Deployed in 1.2s:
+  Datasources: 1 created, 1 changed, 1 unchanged
+  Pipes: 2 created, 3 unchanged
+  Connections: 1 created
+```
+
+### Errors
+
+```text
+✗ Build failed:
+  Datasource 'events' validation error:
+    Invalid engine configuration: sortingKey is required
+    
+  at src/tinybird.ts:15:30
+```
+
+### Warnings
+
+```text
+⚠ Warnings:
+  Pipe 'top_pages' schema may not match query output
+  Consider adding explicit output types
+```
+
+## Performance
+
+### Build Time
+
+Typical build times:
+- Small project (1-5 resources): < 1s
+- Medium project (5-20 resources): 1-2s
+- Large project (20+ resources): 2-5s
+
+### Caching
+
+Branch tokens are cached to avoid API calls:
+
+```bash
+~/.tinybird/branches.json
+```
+
+First build: slower (creates branch)
+Subsequent builds: faster (reuses cached token)
+
+## Troubleshooting
+
+### Build Timeout
+
+```text
+Error: Build timed out after 30s
+```
+
+Large builds may timeout. Contact support for limits.
+
+### Token Invalid
+
+```text
+Error: Invalid token
+```
+
+Run `tinybird login` to refresh credentials.
+
+### Branch Creation Failed
+
+```text
+Error: Failed to create branch: feature-analytics
+```
+
+Check workspace limits. Delete unused branches:
+
+```bash
+tinybird branch delete old-feature
+```
+
+## Related Commands
+
+- **dev**: Build with file watching
+- **deploy**: Deploy to production
+- **branch**: Manage branches
+
+<Note>
+  For continuous development, use `tinybird dev` instead of repeated `build` commands.
+</Note>

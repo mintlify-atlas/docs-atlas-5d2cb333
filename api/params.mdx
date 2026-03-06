@@ -1,0 +1,308 @@
+---
+title: Parameter Validators (p.*)
+description: Type-safe parameter validators for Tinybird pipe queries
+---
+
+Parameter validators define the input parameters for your Tinybird pipes and endpoints. They provide full TypeScript type inference and runtime validation.
+
+## Basic Usage
+
+```typescript
+import { p } from '@tinybirdco/sdk';
+
+const params = {
+  user_id: p.string(),
+  limit: p.int32().optional(10),
+  start_date: p.dateTime().describe('Start of date range'),
+};
+```
+
+## String Parameters
+
+<Card title="p.string()" icon="text">
+String parameter.
+
+```typescript
+user_id: p.string()
+```
+</Card>
+
+<Card title="p.uuid()" icon="fingerprint">
+UUID parameter.
+
+```typescript
+id: p.uuid()
+```
+</Card>
+
+## Integer Parameters
+
+<CardGroup cols={2}>
+  <Card title="p.int8()">
+    8-bit signed integer
+  </Card>
+  <Card title="p.int16()">
+    16-bit signed integer
+  </Card>
+  <Card title="p.int32()">
+    32-bit signed integer
+  </Card>
+  <Card title="p.int64()">
+    64-bit signed integer
+  </Card>
+  <Card title="p.uint8()">
+    8-bit unsigned integer
+  </Card>
+  <Card title="p.uint16()">
+    16-bit unsigned integer
+  </Card>
+  <Card title="p.uint32()">
+    32-bit unsigned integer
+  </Card>
+  <Card title="p.uint64()">
+    64-bit unsigned integer
+  </Card>
+</CardGroup>
+
+## Float Parameters
+
+<Card title="p.float32()" icon="calculator">
+32-bit floating point parameter.
+
+```typescript
+threshold: p.float32()
+```
+</Card>
+
+<Card title="p.float64()" icon="calculator">
+64-bit floating point parameter.
+
+```typescript
+amount: p.float64()
+```
+</Card>
+
+## Boolean
+
+<Card title="p.boolean()" icon="toggle-on">
+Boolean parameter.
+
+```typescript
+is_active: p.boolean()
+```
+</Card>
+
+## Date/Time Parameters
+
+<Card title="p.date()" icon="calendar">
+Date parameter in YYYY-MM-DD format.
+
+```typescript
+birth_date: p.date() // "2024-01-15"
+```
+</Card>
+
+<Card title="p.dateTime()" icon="clock">
+DateTime parameter in YYYY-MM-DD HH:MM:SS format.
+
+```typescript
+start_date: p.dateTime() // "2024-01-15 10:30:00"
+```
+</Card>
+
+<Card title="p.dateTime64()" icon="stopwatch">
+DateTime64 parameter with fractional seconds.
+
+```typescript
+timestamp: p.dateTime64() // "2024-01-15 10:30:00.123"
+```
+</Card>
+
+## Array Parameters
+
+<Card title="p.array(element, separator?)" icon="list">
+Array parameter - values can be passed as comma-separated or repeated params.
+
+```typescript
+ids: p.array(p.string())
+scores: p.array(p.int32())
+// Can be passed as: ?ids=a,b,c or ?ids=a&ids=b&ids=c
+```
+</Card>
+
+## Special Parameters
+
+<Card title="p.column()" icon="table-columns">
+Column reference parameter - allows dynamic column selection.
+
+```typescript
+group_by: p.column()
+// Use with caution as it can affect query safety
+```
+
+<Warning>
+Use `p.column()` carefully as it allows dynamic column selection which can affect query safety and performance.
+</Warning>
+</Card>
+
+<Card title="p.json()" icon="brackets-curly">
+JSON parameter for passing complex structured data.
+
+```typescript
+filters: p.json()
+```
+</Card>
+
+## Modifiers
+
+### .optional(defaultValue?)
+
+Make a parameter optional with an optional default value.
+
+```typescript
+limit: p.int32().optional(10)
+offset: p.int32().optional(0)
+status: p.string().optional() // no default
+```
+
+When a parameter is optional:
+- If a default value is provided, the parameter type remains the base type
+- If no default value is provided, the parameter type becomes `T | undefined`
+
+### .required()
+
+Explicitly mark a parameter as required (this is the default).
+
+```typescript
+user_id: p.string().required()
+```
+
+### .describe(description)
+
+Add a description for documentation purposes.
+
+```typescript
+start_date: p.dateTime().describe('Start of date range')
+end_date: p.dateTime().describe('End of date range')
+limit: p.int32().optional(10).describe('Maximum number of results')
+```
+
+## Complete Example
+
+```typescript
+import { defineEndpoint, node, t, p, type InferParams } from '@tinybirdco/sdk';
+
+export const topPages = defineEndpoint('top_pages', {
+  description: 'Get the most visited pages',
+  params: {
+    start_date: p.dateTime().describe('Start of date range'),
+    end_date: p.dateTime().describe('End of date range'),
+    limit: p.int32().optional(10).describe('Maximum number of results'),
+    country: p.string().optional().describe('Filter by country code'),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+          {% if defined(country) %}
+          AND country = {{String(country)}}
+          {% end %}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+export type TopPagesParams = InferParams<typeof topPages>;
+// { start_date: string, end_date: string, limit?: number, country?: string | undefined }
+```
+
+## Using Parameters in SQL
+
+When using parameters in your SQL queries, wrap them with the appropriate type function:
+
+```typescript
+node({
+  name: 'filtered',
+  sql: `
+    SELECT *
+    FROM events
+    WHERE timestamp >= {{DateTime(start_date)}}
+      AND timestamp <= {{DateTime(end_date)}}
+      AND event_name = {{String(event_type)}}
+      AND user_id = {{Int32(user_id)}}
+    LIMIT {{Int32(limit, 10)}}
+  `,
+})
+```
+
+### Conditional Parameters
+
+Use Jinja2 templating for optional parameters:
+
+```typescript
+node({
+  name: 'conditional',
+  sql: `
+    SELECT *
+    FROM events
+    WHERE timestamp >= {{DateTime(start_date)}}
+      {% if defined(country) %}
+      AND country = {{String(country)}}
+      {% end %}
+    LIMIT {{Int32(limit, 10)}}
+  `,
+})
+```
+
+## Type Inference
+
+```typescript
+import { type InferParams, type InferParamType } from '@tinybirdco/sdk';
+import { topPages } from './pipes';
+
+// Infer all parameters
+type TopPagesParams = InferParams<typeof topPages>;
+// { start_date: string, end_date: string, limit?: number }
+
+// Infer a single parameter type
+const limitValidator = p.int32().optional(10);
+type LimitType = InferParamType<typeof limitValidator>; // number
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Optional with Defaults" icon="check">
+    Provide sensible defaults for optional parameters to improve API usability.
+    ```typescript
+    limit: p.int32().optional(10)
+    ```
+  </Card>
+  
+  <Card title="Add Descriptions" icon="book">
+    Document your parameters for better developer experience.
+    ```typescript
+    start_date: p.dateTime()
+      .describe('Start of date range')
+    ```
+  </Card>
+  
+  <Card title="Use Appropriate Types" icon="type">
+    Choose the most specific type for your use case (e.g., `p.uint32()` for IDs).
+  </Card>
+  
+  <Card title="Validate in SQL" icon="shield">
+    Add additional validation in your SQL queries when needed.
+  </Card>
+</CardGroup>

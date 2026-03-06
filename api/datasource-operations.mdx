@@ -1,0 +1,411 @@
+---
+title: "Datasource Operations"
+description: "Append, replace, delete, and truncate operations for managing datasource rows"
+---
+
+## Overview
+
+Manage datasource rows using append, replace, delete, and truncate operations. These operations are available through the `client.datasources` namespace or directly on typed datasource accessors.
+
+## Operations
+
+<CardGroup cols={2}>
+  <Card title="append()" icon="plus">
+    Import rows from a remote file or URL
+  </Card>
+  <Card title="replace()" icon="rotate">
+    Replace all rows with data from a file
+  </Card>
+  <Card title="delete()" icon="trash">
+    Delete rows matching a SQL condition
+  </Card>
+  <Card title="truncate()" icon="broom">
+    Remove all rows from a datasource
+  </Card>
+</CardGroup>
+
+## Append
+
+Import and append rows from a remote file or URL:
+
+### With TinybirdClient
+
+```typescript
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+});
+
+// Append from URL
+await client.datasources.append('events', {
+  url: 'https://example.com/events.csv',
+});
+
+// Append from local file
+await client.datasources.append('events', {
+  file: './data/events.ndjson',
+});
+```
+
+### With Typed Tinybird Client
+
+```typescript
+import { tinybird } from '@tinybird/client';
+
+await tinybird.pageViews.append({
+  url: 'https://example.com/page_views.csv',
+});
+```
+
+### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  Name of the datasource
+</ParamField>
+
+<ParamField path="options" type="AppendOptions" required>
+  Append options
+</ParamField>
+
+#### AppendOptions
+
+<ParamField path="url" type="string">
+  Remote URL to import data from. Exactly one of `url` or `file` must be provided.
+</ParamField>
+
+<ParamField path="file" type="string">
+  Local file path to import data from. Exactly one of `url` or `file` must be provided.
+</ParamField>
+
+<ParamField path="csvDialect" type="CsvDialectOptions">
+  CSV dialect options (only applicable for CSV format)
+  
+  ```typescript
+  {
+    delimiter: ',',
+    newLine: '\n',
+    escapeChar: '\\'
+  }
+  ```
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Request timeout in milliseconds
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortController signal for cancellation
+</ParamField>
+
+### Response
+
+```typescript
+interface AppendResult {
+  successful_rows: number;      // Number of rows successfully appended
+  quarantined_rows: number;     // Number of rows that failed
+  import_id?: string;           // Import ID for tracking
+}
+```
+
+### Examples
+
+```typescript
+// Basic append from URL
+const result = await client.datasources.append('events', {
+  url: 'https://example.com/events.csv',
+});
+
+console.log(`Appended ${result.successful_rows} rows`);
+
+// Append with custom CSV dialect
+await client.datasources.append('events', {
+  url: 'https://example.com/events.tsv',
+  csvDialect: {
+    delimiter: '\t',
+  },
+});
+
+// Append from local file
+await client.datasources.append('events', {
+  file: './data/events.ndjson',
+});
+```
+
+## Replace
+
+Replace all datasource rows with data from a remote file:
+
+### Usage
+
+```typescript
+// Replace all rows
+await client.datasources.replace('events', {
+  url: 'https://example.com/events_full_snapshot.csv',
+});
+
+// With typed client
+await tinybird.pageViews.replace({
+  url: 'https://example.com/page_views_full_snapshot.csv',
+});
+```
+
+### Parameters
+
+Same as `append()` - accepts `AppendOptions`.
+
+### Response
+
+Returns `AppendResult` (same structure as `append()`).
+
+<Warning>
+  **Destructive operation**: Replace deletes all existing rows before importing new data. Use with caution, especially in production.
+</Warning>
+
+## Delete
+
+Delete rows matching a SQL WHERE condition:
+
+### Usage
+
+```typescript
+// Delete matching rows
+await client.datasources.delete('events', {
+  deleteCondition: "country = 'XX'",
+});
+
+// Preview matching rows without deleting (dry run)
+const result = await client.datasources.delete('events', {
+  deleteCondition: "event_type = 'test'",
+  dryRun: true,
+});
+
+console.log(`Would delete ${result.rows_to_be_deleted} rows`);
+
+// With typed client
+await tinybird.pageViews.delete({
+  deleteCondition: "pathname = '/old-page'",
+});
+```
+
+### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  Name of the datasource
+</ParamField>
+
+<ParamField path="options" type="DeleteOptions" required>
+  Delete options
+</ParamField>
+
+#### DeleteOptions
+
+<ParamField path="deleteCondition" type="string" required>
+  SQL WHERE clause condition used to select rows to delete. Do not include the `WHERE` keyword.
+  
+  **Examples:**
+  - `"country = 'XX'"`
+  - `"timestamp < '2024-01-01'"`
+  - `"event_type = 'test' AND user_id IS NULL"`
+</ParamField>
+
+<ParamField path="dryRun" type="boolean">
+  Validate and return matched rows without executing deletion.
+  
+  **Default:** `false`
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Request timeout in milliseconds
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortController signal for cancellation
+</ParamField>
+
+### Response
+
+```typescript
+interface DeleteResult {
+  id?: string;                    // Delete job ID
+  job_id?: string;                // Same as id
+  job_url?: string;               // Job status URL
+  status?: string;                // Job status
+  delete_id?: string;             // Same as id
+  rows_to_be_deleted?: number;    // Number of rows matched (dry run only)
+}
+```
+
+### Examples
+
+```typescript
+// Delete old data
+await client.datasources.delete('events', {
+  deleteCondition: "timestamp < '2023-01-01'",
+});
+
+// Delete test data
+await client.datasources.delete('events', {
+  deleteCondition: "event_type = 'test'",
+});
+
+// Dry run to preview deletion
+const preview = await client.datasources.delete('events', {
+  deleteCondition: "country = 'XX'",
+  dryRun: true,
+});
+
+if (preview.rows_to_be_deleted > 0) {
+  console.log(`Would delete ${preview.rows_to_be_deleted} rows`);
+  
+  // Proceed with actual deletion
+  await client.datasources.delete('events', {
+    deleteCondition: "country = 'XX'",
+  });
+}
+```
+
+<Warning>
+  **Destructive operation**: Deleted rows cannot be recovered. Always test your `deleteCondition` with `dryRun: true` first.
+</Warning>
+
+## Truncate
+
+Remove all rows from a datasource:
+
+### Usage
+
+```typescript
+// Truncate all rows
+await client.datasources.truncate('events');
+
+// With typed client
+await tinybird.pageViews.truncate();
+```
+
+### Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  Name of the datasource
+</ParamField>
+
+<ParamField path="options" type="TruncateOptions">
+  Optional truncate options
+</ParamField>
+
+#### TruncateOptions
+
+<ParamField path="timeout" type="number">
+  Request timeout in milliseconds
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortController signal for cancellation
+</ParamField>
+
+### Response
+
+```typescript
+interface TruncateResult {
+  status?: string; // Optional status from API
+}
+```
+
+### Example
+
+```typescript
+// Truncate all rows
+await client.datasources.truncate('events');
+
+console.log('All rows removed from events datasource');
+```
+
+<Warning>
+  **Destructive operation**: Truncate removes ALL rows from the datasource. This operation cannot be undone. Use with extreme caution, especially in production.
+</Warning>
+
+## Complete Example
+
+Here's a complete example using all datasource operations:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+
+// 1. Ingest one row as JSON
+await tinybird.pageViews.ingest({
+  timestamp: '2024-01-15 10:30:00',
+  pathname: '/pricing',
+  session_id: 'session_123',
+  country: 'US',
+});
+
+// 2. Import rows from a remote file
+const appendResult = await tinybird.pageViews.append({
+  url: 'https://example.com/page_views.csv',
+});
+console.log(`Imported ${appendResult.successful_rows} rows`);
+
+// 3. Preview deletion with dry run
+const preview = await tinybird.pageViews.delete({
+  deleteCondition: "country = 'XX'",
+  dryRun: true,
+});
+
+if (preview.rows_to_be_deleted > 0) {
+  // 4. Delete matching rows
+  await tinybird.pageViews.delete({
+    deleteCondition: "country = 'XX'",
+  });
+  console.log(`Deleted ${preview.rows_to_be_deleted} rows`);
+}
+
+// 5. Replace all rows from a full snapshot
+await tinybird.pageViews.replace({
+  url: 'https://example.com/page_views_full_snapshot.csv',
+});
+
+// 6. Truncate everything (use carefully!)
+await tinybird.pageViews.truncate();
+```
+
+## Error Handling
+
+```typescript
+import { TinybirdError } from '@tinybirdco/sdk';
+
+try {
+  await client.datasources.delete('events', {
+    deleteCondition: "timestamp < '2023-01-01'",
+  });
+} catch (error) {
+  if (error instanceof TinybirdError) {
+    console.error(`Error: ${error.message}`);
+    
+    if (error.isAuthError()) {
+      console.error('Check your token permissions');
+    } else if (error.isNotFoundError()) {
+      console.error('Datasource not found');
+    }
+  } else {
+    throw error;
+  }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="TinybirdClient" icon="gear" href="/api/tinybird-client">
+    Core client class documentation
+  </Card>
+  <Card title="Ingest" icon="arrow-down-to-bracket" href="/api/ingest">
+    Ingest data into datasources
+  </Card>
+  <Card title="Define Datasource" icon="table" href="/api/define-datasource">
+    Define datasource schemas
+  </Card>
+  <Card title="Typed Client" icon="code" href="/api/tinybird-client">
+    Type-safe client with schema inference
+  </Card>
+</CardGroup>

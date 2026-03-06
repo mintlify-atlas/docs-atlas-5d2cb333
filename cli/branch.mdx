@@ -1,0 +1,411 @@
+---
+title: tinybird branch
+description: Manage Tinybird branches for isolated development
+---
+
+Manage Tinybird branches directly from the CLI. View, inspect, and delete branches created during development.
+
+## Syntax
+
+```bash
+tinybird branch <command> [options]
+```
+
+## Commands
+
+<CodeGroup>
+```bash List Branches
+tinybird branch list
+```
+
+```bash Branch Status
+tinybird branch status
+```
+
+```bash Delete Branch
+tinybird branch delete <name>
+```
+</CodeGroup>
+
+## List Branches
+
+View all branches in your workspace:
+
+```bash
+tinybird branch list
+```
+
+```text Output
+Branches in workspace: my-workspace
+
+  Name                     Created              Status
+  ─────────────────────────────────────────────────────
+  feature-analytics        2024-01-15 10:23     active
+  feature-user-events      2024-01-14 15:42     active  
+  fix-schema-bug           2024-01-13 09:15     active
+
+✓ Found 3 branches
+```
+
+### List Output
+
+Each branch shows:
+- **Name**: Sanitized branch name for Tinybird
+- **Created**: When branch was created
+- **Status**: Branch state (active, merged, etc.)
+
+## Branch Status
+
+Show status of current git branch:
+
+```bash
+tinybird branch status
+```
+
+```text Output
+Current branch status:
+
+  Git branch:       feature/analytics
+  Tinybird branch:  feature-analytics
+  Status:           active
+  Created:          2024-01-15 10:23
+  Cached token:     yes
+  
+  Dashboard: https://ui.tinybird.co/my-workspace/branch/feature-analytics
+```
+
+### On Main Branch
+
+```bash
+# Switch to main
+git checkout main
+tinybird branch status
+```
+
+```text Output
+Current branch status:
+
+  Git branch:       main
+  Tinybird branch:  (none - main workspace)
+  Status:           main branch
+  
+  Dashboard: https://ui.tinybird.co/my-workspace
+```
+
+### Branch Not Created Yet
+
+```bash
+# New feature branch
+git checkout -b feature/new-feature
+tinybird branch status
+```
+
+```text Output
+Current branch status:
+
+  Git branch:       feature/new-feature
+  Tinybird branch:  feature-new-feature
+  Status:           not created
+  Cached token:     no
+  
+Tip: Run 'tinybird dev' or 'tinybird build' to create this branch
+```
+
+## Delete Branch
+
+Delete a Tinybird branch:
+
+```bash
+tinybird branch delete feature-analytics
+```
+
+```text Output
+⚠ This will permanently delete branch: feature-analytics
+  All resources in this branch will be removed.
+
+Continue? (y/N) y
+
+✓ Branch deleted: feature-analytics
+✓ Cached token removed
+```
+
+<Warning>
+  Deleting a branch removes all resources in that branch. This cannot be undone.
+</Warning>
+
+### Delete Without Confirmation (CI)
+
+```bash
+yes | tinybird branch delete old-feature
+```
+
+Or set `CI=true`:
+
+```bash
+CI=true tinybird branch delete old-feature
+```
+
+## Branch Naming
+
+Git branch names are sanitized for Tinybird:
+
+```text
+Git Branch              → Tinybird Branch
+─────────────────────────────────────────
+feature/analytics       → feature-analytics
+fix/bug-123             → fix-bug-123
+user/john/experiment    → user-john-experiment
+123-numeric-start       → b-123-numeric-start
+```
+
+Rules:
+- Slashes (`/`) → hyphens (`-`)
+- Must start with letter → prefix `b-` if numeric
+- Special characters removed
+- Lowercase only
+
+## Branch Lifecycle
+
+### 1. Creation
+
+Branches created automatically on first build/dev:
+
+```bash
+git checkout -b feature/new-endpoint
+tinybird dev
+```
+
+```text
+✓ Branch created: feature-new-endpoint
+```
+
+### 2. Development
+
+Work in isolated branch:
+
+```bash
+tinybird dev
+# Make changes, auto-sync to branch
+```
+
+### 3. Review
+
+Check branch status:
+
+```bash
+tinybird branch status
+```
+
+### 4. Merge
+
+Merge to main, deploy to production:
+
+```bash
+git checkout main
+git merge feature/new-endpoint
+tinybird deploy
+```
+
+### 5. Cleanup
+
+Delete branch after merge:
+
+```bash
+tinybird branch delete feature-new-endpoint
+```
+
+## Dashboard URLs
+
+Each branch has its own dashboard:
+
+```bash
+tinybird branch status
+```
+
+```text
+Dashboard: https://ui.tinybird.co/workspace/branch/feature-analytics
+```
+
+Click to view:
+- Datasources in branch
+- Pipes and endpoints
+- Run queries
+- View data
+
+## Cached Tokens
+
+Branch tokens are cached locally for performance:
+
+```bash
+~/.tinybird/branches.json
+```
+
+```json
+{
+  "workspace-id-123": {
+    "feature-analytics": {
+      "id": "branch-id-456",
+      "token": "p.branch_token...",
+      "createdAt": "2024-01-15T10:23:00Z"
+    }
+  }
+}
+```
+
+Cache is automatically updated:
+- On branch creation
+- On branch deletion
+- When token refreshed
+
+## Examples
+
+### List All Branches
+
+```bash
+tinybird branch list
+```
+
+### Check Current Branch
+
+```bash
+tinybird branch status
+```
+
+### Delete Old Branches
+
+```bash
+tinybird branch delete old-feature-1
+tinybird branch delete old-feature-2
+tinybird branch delete experimental
+```
+
+### Clean Up After PR Merge
+
+```bash
+# After PR merged to main
+git checkout main
+git pull
+
+# Delete remote git branch
+git push origin --delete feature/analytics
+
+# Delete local git branch  
+git branch -d feature/analytics
+
+# Delete Tinybird branch
+tinybird branch delete feature-analytics
+```
+
+### Automation: Delete Merged Branches
+
+```bash
+#!/bin/bash
+# delete-merged-branches.sh
+
+# Get merged git branches
+MERGED=$(git branch --merged main | grep -v "^\*" | grep -v "main")
+
+# Delete corresponding Tinybird branches
+for BRANCH in $MERGED; do
+  # Sanitize branch name (basic)
+  TB_BRANCH=$(echo $BRANCH | tr '/' '-')
+  echo "Deleting: $TB_BRANCH"
+  tinybird branch delete "$TB_BRANCH" 2>/dev/null || true
+done
+```
+
+## Branch Limits
+
+Workspace branch limits:
+
+- **Free tier**: 3 branches
+- **Starter**: 10 branches
+- **Build**: 25 branches
+- **Scale**: Unlimited
+
+Delete unused branches to stay within limits.
+
+## Multiple Team Members
+
+Each team member can have their own branch:
+
+```bash
+# Alice
+git checkout -b alice/feature
+tinybird dev
+# Branch: alice-feature
+
+# Bob  
+git checkout -b bob/feature
+tinybird dev
+# Branch: bob-feature
+```
+
+Branches are isolated - no conflicts.
+
+## Troubleshooting
+
+### Branch Not Found
+
+```text
+Error: Branch not found: feature-analytics
+```
+
+Branch doesn't exist or was already deleted:
+
+```bash
+tinybird branch list
+```
+
+### Cannot Delete Active Branch
+
+```text
+Error: Cannot delete branch you're currently on
+```
+
+Switch to different branch first:
+
+```bash
+git checkout main
+tinybird branch delete feature-analytics
+```
+
+### Branch Limit Reached
+
+```text
+Error: Workspace branch limit reached (3/3)
+```
+
+Delete unused branches:
+
+```bash
+tinybird branch list
+tinybird branch delete old-branch-1
+```
+
+### Token Cache Stale
+
+If branch commands fail with auth errors:
+
+```bash
+# Clear cache
+rm ~/.tinybird/branches.json
+
+# Rebuild will refresh
+tinybird build
+```
+
+## Related Commands
+
+- **dev**: Create/use branches automatically
+- **build**: Deploy to branches
+- **deploy**: Deploy to main (not branch)
+- **info**: View workspace and branch info
+
+<Note>
+  Branches are workspace-specific. Each workspace has its own set of branches.
+</Note>
+
+<Warning>
+  Deleting a branch deletes all resources in that branch. Export important resources before deletion.
+</Warning>

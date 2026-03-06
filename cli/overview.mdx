@@ -1,0 +1,149 @@
+---
+title: CLI Commands Overview
+description: Command-line interface for managing Tinybird resources with TypeScript
+---
+
+The Tinybird TypeScript SDK provides a powerful CLI for managing your data infrastructure. All commands automatically load configuration from `tinybird.config.json` and environment variables from `.env.local`.
+
+## Quick Reference
+
+<CardGroup cols={2}>
+  <Card title="Init" icon="rocket" href="/cli/init">
+    Initialize a new Tinybird TypeScript project
+  </Card>
+  <Card title="Dev" icon="code" href="/cli/dev">
+    Watch for changes and auto-sync with Tinybird
+  </Card>
+  <Card title="Build" icon="hammer" href="/cli/build">
+    Build and push to a Tinybird branch
+  </Card>
+  <Card title="Deploy" icon="upload" href="/cli/deploy">
+    Deploy resources to production
+  </Card>
+  <Card title="Migrate" icon="arrows-rotate" href="/cli/migrate">
+    Migrate datafiles to TypeScript
+  </Card>
+  <Card title="Pull" icon="download" href="/cli/pull">
+    Download cloud resources as datafiles
+  </Card>
+  <Card title="Login" icon="right-to-bracket" href="/cli/login">
+    Authenticate with Tinybird
+  </Card>
+  <Card title="Branch" icon="code-branch" href="/cli/branch">
+    Manage Tinybird branches
+  </Card>
+  <Card title="Info" icon="circle-info" href="/cli/info">
+    Display project and workspace information
+  </Card>
+</CardGroup>
+
+## Development Workflow
+
+Typical development workflow using CLI commands:
+
+1. **Initialize** your project with `tinybird init`
+2. **Develop** with auto-sync using `tinybird dev`
+3. **Build** to test changes on a branch with `tinybird build`
+4. **Deploy** to production with `tinybird deploy`
+
+## Branch vs Deploy
+
+The SDK enforces safe deployment practices:
+
+- **`dev` and `build`**: Only work on feature branches (not main)
+- **`deploy`**: Only deploys to production from main branch
+
+This prevents accidental production deployments during development.
+
+## Development Modes
+
+The CLI supports two development modes:
+
+### Branch Mode (Default)
+
+Uses Tinybird Cloud with git-based branching:
+
+```json tinybird.config.json
+{
+  "devMode": "branch"
+}
+```
+
+- Creates Tinybird branches automatically from git branches
+- Each branch gets isolated workspace
+- Perfect for team collaboration
+
+### Local Mode
+
+Runs against a local Tinybird container:
+
+```json tinybird.config.json
+{
+  "devMode": "local"
+}
+```
+
+- Works offline without cloud authentication
+- Faster iteration during development
+- Requires local Docker container
+
+## Command Categories
+
+### Project Setup
+- **init**: Bootstrap a new project
+- **login**: Authenticate with Tinybird
+
+### Development
+- **dev**: Watch mode with auto-sync
+- **build**: Build to feature branch
+- **deploy**: Deploy to production
+
+### Resource Management
+- **pull**: Download cloud resources
+- **migrate**: Convert datafiles to TypeScript
+- **branch**: Manage branches
+- **info**: View project status
+
+## Environment Variables
+
+All commands read from:
+
+- `.env.local` (recommended for local development)
+- `.env` (fallback)
+- `process.env` (system environment)
+
+Required variables:
+
+```bash .env.local
+TINYBIRD_TOKEN=p.your_token_here
+```
+
+## Global Flags
+
+Most commands support:
+
+- `--help`: Show command help
+- `--cwd <path>`: Run from specific directory
+
+## Exit Codes
+
+CLI commands follow standard exit codes:
+
+- `0`: Success
+- `1`: Error (build failed, authentication failed, etc.)
+- `130`: User cancelled (SIGINT)
+
+## Configuration
+
+All commands respect settings in `tinybird.config.json`:
+
+```json
+{
+  "include": ["src/tinybird.ts"],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co",
+  "devMode": "branch"
+}
+```
+
+See individual command pages for detailed usage and examples.

@@ -1,0 +1,313 @@
+---
+title: "Ingest"
+description: "Ingest data into datasources with single row and batch operations"
+---
+
+## Overview
+
+Ingest data into Tinybird datasources using the `ingest()` and `ingestBatch()` methods. These methods support single-row and batch ingestion with full type safety when using the typed client.
+
+## Single Row Ingestion
+
+### With TinybirdClient
+
+```typescript
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+});
+
+await client.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+  user_id: 'user_123',
+});
+```
+
+### With Typed Tinybird Client
+
+For full type safety with autocomplete:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+
+// Fully typed - TypeScript will validate the event structure
+await tinybird.pageViews.ingest({
+  timestamp: '2024-01-15 10:30:00',
+  pathname: '/home',
+  session_id: 'abc123',
+  country: 'US',
+});
+```
+
+## Batch Ingestion
+
+For better performance when ingesting multiple rows, use `ingestBatch()`:
+
+```typescript
+await client.ingestBatch('events', [
+  {
+    timestamp: '2024-01-15 10:30:00',
+    event_type: 'page_view',
+    user_id: 'user_123',
+  },
+  {
+    timestamp: '2024-01-15 10:31:00',
+    event_type: 'button_click',
+    user_id: 'user_456',
+  },
+  {
+    timestamp: '2024-01-15 10:32:00',
+    event_type: 'form_submit',
+    user_id: 'user_789',
+  },
+]);
+```
+
+## Method Signatures
+
+### ingest()
+
+```typescript
+client.ingest<T extends Record<string, unknown>>(
+  datasourceName: string,
+  event: T,
+  options?: IngestOptions
+): Promise<IngestResult>
+```
+
+### ingestBatch()
+
+```typescript
+client.ingestBatch<T extends Record<string, unknown>>(
+  datasourceName: string,
+  events: T[],
+  options?: IngestOptions
+): Promise<IngestResult>
+```
+
+## Parameters
+
+<ParamField path="datasourceName" type="string" required>
+  Name of the datasource to ingest data into
+</ParamField>
+
+<ParamField path="event" type="T">
+  Event object to ingest (for `ingest()`)
+</ParamField>
+
+<ParamField path="events" type="T[]">
+  Array of event objects to ingest (for `ingestBatch()`)
+</ParamField>
+
+<ParamField path="options" type="IngestOptions">
+  Additional request options
+</ParamField>
+
+### IngestOptions
+
+<ParamField path="timeout" type="number">
+  Request timeout in milliseconds. Overrides the default client timeout.
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortController signal for request cancellation
+</ParamField>
+
+<ParamField path="wait" type="boolean">
+  Wait for the ingestion to complete before returning. When `false`, the request returns immediately after the data is received.
+  
+  **Default:** `false`
+</ParamField>
+
+## Response
+
+Returns an `IngestResult` object:
+
+```typescript
+interface IngestResult {
+  successful_rows: number;  // Number of rows successfully ingested
+  quarantined_rows: number; // Number of rows that failed to ingest
+}
+```
+
+## Examples
+
+### Basic Ingestion
+
+```typescript
+const result = await client.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+  pathname: '/home',
+});
+
+console.log(`Ingested ${result.successful_rows} rows`);
+if (result.quarantined_rows > 0) {
+  console.error(`${result.quarantined_rows} rows failed`);
+}
+```
+
+### Batch Ingestion
+
+```typescript
+const events = [
+  { timestamp: '2024-01-15 10:30:00', event_type: 'page_view' },
+  { timestamp: '2024-01-15 10:31:00', event_type: 'button_click' },
+  { timestamp: '2024-01-15 10:32:00', event_type: 'form_submit' },
+];
+
+const result = await client.ingestBatch('events', events);
+console.log(`Ingested ${result.successful_rows}/${events.length} rows`);
+```
+
+### With Type Parameter
+
+```typescript
+interface PageViewEvent {
+  timestamp: string;
+  pathname: string;
+  session_id: string;
+  country: string | null;
+}
+
+await client.ingest<PageViewEvent>('page_views', {
+  timestamp: '2024-01-15 10:30:00',
+  pathname: '/pricing',
+  session_id: 'session_123',
+  country: 'US',
+});
+```
+
+### With Wait Option
+
+Wait for ingestion to complete before returning:
+
+```typescript
+const result = await client.ingest(
+  'events',
+  {
+    timestamp: '2024-01-15 10:30:00',
+    event_type: 'page_view',
+  },
+  { wait: true }
+);
+
+// Data is guaranteed to be queryable now
+const queryResult = await client.query('recent_events');
+```
+
+### With Timeout
+
+```typescript
+await client.ingestBatch(
+  'events',
+  largeEventArray,
+  { timeout: 60000 } // 60 seconds
+);
+```
+
+### With Cancellation
+
+```typescript
+const controller = new AbortController();
+
+setTimeout(() => controller.abort(), 5000);
+
+try {
+  await client.ingestBatch('events', largeEventArray, {
+    signal: controller.signal,
+  });
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Ingestion was cancelled');
+  }
+}
+```
+
+### Using Datasources Namespace
+
+The `client.datasources` namespace also provides an `ingest()` method:
+
+```typescript
+await client.datasources.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+});
+```
+
+### Handling Quarantined Rows
+
+```typescript
+const result = await client.ingestBatch('events', events);
+
+if (result.quarantined_rows > 0) {
+  console.error(
+    `Warning: ${result.quarantined_rows} rows were quarantined.\n` +
+    `Check the Tinybird UI for quarantine details.`
+  );
+}
+```
+
+Quarantined rows are typically caused by:
+- Schema mismatches (wrong column types)
+- Missing required columns
+- Invalid data formats
+- Constraint violations
+
+## Performance Tips
+
+<Tip>
+  **Batch your ingestion**: Use `ingestBatch()` instead of multiple `ingest()` calls for better performance. Batch sizes of 1,000-10,000 rows are typically optimal.
+</Tip>
+
+<Tip>
+  **Avoid waiting**: Unless you need to query the data immediately, don't use `wait: true`. Tinybird processes ingestion asynchronously for better performance.
+</Tip>
+
+<Tip>
+  **Use proper timestamps**: Always use ISO 8601 format for DateTime fields: `'2024-01-15 10:30:00'` or `'2024-01-15T10:30:00Z'`
+</Tip>
+
+## Error Handling
+
+```typescript
+import { TinybirdError } from '@tinybirdco/sdk';
+
+try {
+  await client.ingest('events', eventData);
+} catch (error) {
+  if (error instanceof TinybirdError) {
+    console.error(`Tinybird API error: ${error.message}`);
+    
+    if (error.isAuthError()) {
+      console.error('Authentication failed - check your token');
+    } else if (error.isRateLimitError()) {
+      console.error('Rate limit exceeded - retry later');
+    } else if (error.isNotFoundError()) {
+      console.error('Datasource not found');
+    }
+  } else {
+    throw error;
+  }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="TinybirdClient" icon="gear" href="/api/tinybird-client">
+    Core client class documentation
+  </Card>
+  <Card title="Query" icon="magnifying-glass" href="/api/query">
+    Query pipe endpoints
+  </Card>
+  <Card title="Datasource Operations" icon="database" href="/api/datasource-operations">
+    Append, replace, delete, and truncate
+  </Card>
+  <Card title="Define Datasource" icon="table" href="/api/define-datasource">
+    Define datasource schemas
+  </Card>
+</CardGroup>

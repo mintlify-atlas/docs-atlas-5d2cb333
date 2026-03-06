@@ -1,0 +1,162 @@
+---
+title: Installation
+description: Install the Tinybird TypeScript SDK and set up your development environment
+---
+
+Get started with the Tinybird TypeScript SDK by installing the package and verifying your environment meets the requirements.
+
+## Install the SDK
+
+Install the SDK using your preferred package manager:
+
+<CodeGroup>
+```bash npm
+npm install @tinybirdco/sdk
+```
+
+```bash yarn
+yarn add @tinybirdco/sdk
+```
+
+```bash pnpm
+pnpm add @tinybirdco/sdk
+```
+</CodeGroup>
+
+## System Requirements
+
+### Node.js Version
+
+The SDK requires **Node.js 20 LTS or later**. Check your Node.js version:
+
+```bash
+node --version
+```
+
+If you need to upgrade, download the latest LTS version from [nodejs.org](https://nodejs.org/).
+
+### TypeScript Version
+
+For TypeScript projects, **TypeScript 4.9 or later** is required:
+
+```bash
+npm install --save-dev typescript@^5.0.0
+```
+
+<Note>
+The SDK is designed for TypeScript projects and provides the best experience with full type inference when using TypeScript.
+</Note>
+
+## Supported Runtimes
+
+### Officially Supported
+
+The SDK is officially tested and supported on:
+
+- **Node.js 20 LTS** or later non-EOL versions
+
+### Community Support
+
+The following runtimes are not officially tested but may work:
+
+- Deno >= 1.28.0
+- Bun >= 1.0.0
+- Cloudflare Workers
+- Vercel Edge Runtime
+- Jest >= 28 (including `"node"` environment)
+- Nitro >= 2.6.0
+
+<Warning>
+Web browsers are **not supported**. This SDK is designed for server-side usage only. Using it directly in the browser may expose your Tinybird API credentials.
+</Warning>
+
+If you need support for other runtimes, please [open or upvote an issue on GitHub](https://github.com/tinybirdco/tinybird-sdk).
+
+## Verify Installation
+
+Verify the SDK is installed correctly:
+
+```bash
+npx tinybird --version
+```
+
+You should see the version number printed to the console.
+
+## Initialize Your Project
+
+Once installed, you're ready to initialize your Tinybird project:
+
+```bash
+npx tinybird init
+```
+
+This command will:
+
+<Steps>
+  <Step title="Authenticate with Tinybird">
+    Opens your browser to authenticate and select your workspace
+  </Step>
+  
+  <Step title="Create Configuration">
+    Generates `tinybird.config.json` with your workspace settings
+  </Step>
+  
+  <Step title="Generate Project Files">
+    Creates starter files:
+    - `src/tinybird/datasources.ts` - Define your datasources
+    - `src/tinybird/pipes.ts` - Define your pipes/endpoints  
+    - `src/tinybird/client.ts` - Your typed Tinybird client
+  </Step>
+  
+  <Step title="Store Credentials">
+    Saves your API token to `.env.local`
+  </Step>
+</Steps>
+
+<Note>
+If you have existing `.datasource` and `.pipe` files, the CLI will detect them and ask if you want to include them in your configuration for incremental migration.
+</Note>
+
+## Configuration Options
+
+The `init` command accepts optional flags:
+
+```bash
+npx tinybird init --force       # Overwrite existing files
+npx tinybird init --skip-login  # Skip browser login flow
+```
+
+## Project Structure
+
+After initialization, your project will have this structure:
+
+```
+project/
+├── tinybird.config.json      # Tinybird configuration
+├── .env.local                 # API token (git-ignored)
+└── src/
+    └── tinybird/
+        ├── datasources.ts     # Datasource definitions
+        ├── pipes.ts           # Pipe/endpoint definitions
+        └── client.ts          # Generated typed client
+```
+
+## Environment Variables
+
+Your Tinybird token is stored in `.env.local`:
+
+```env .env.local
+TINYBIRD_TOKEN=p.your_token_here
+```
+
+<Warning>
+Never commit `.env.local` to version control. The SDK automatically loads this file, so make sure it's in your `.gitignore`.
+</Warning>
+
+## Next Steps
+
+Now that you have the SDK installed and your project initialized, you're ready to build your first data pipeline!
+
+<Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+  Follow the quickstart to create your first datasource and endpoint
+</Card>

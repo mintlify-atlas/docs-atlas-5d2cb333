@@ -1,0 +1,277 @@
+---
+title: 'defineToken'
+description: 'Define reusable static tokens for resource access control'
+---
+
+## Function Signature
+
+```typescript
+function defineToken(name: string): TokenDefinition
+```
+
+Define a static token that can be referenced in datasources and pipes for access control. Tokens can be reused across multiple resources to grant scoped access.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The token name. Must start with a letter or underscore and contain only alphanumeric characters and underscores.
+</ParamField>
+
+## Return Type
+
+```typescript
+TokenDefinition
+```
+
+A token definition that can be referenced in datasources and pipes.
+
+## Usage Examples
+
+### Basic Token Definition
+
+```typescript
+import { defineToken } from '@tinybirdco/sdk'
+
+// Define reusable tokens
+export const appToken = defineToken('app_read')
+export const ingestToken = defineToken('ingest_token')
+export const adminToken = defineToken('admin_token')
+```
+
+### Using Tokens in Datasources
+
+```typescript
+import { defineDatasource, defineToken, t, engine } from '@tinybirdco/sdk'
+
+const readToken = defineToken('app_read')
+const ingestToken = defineToken('ingest_token')
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string(),
+    user_id: t.string(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['timestamp'],
+  }),
+  tokens: [
+    { token: readToken, scope: 'READ' },
+    { token: ingestToken, scope: 'APPEND' },
+  ],
+})
+```
+
+### Using Tokens in Endpoints
+
+```typescript
+import { defineEndpoint, defineToken, node, t } from '@tinybirdco/sdk'
+
+const appToken = defineToken('app_read')
+
+export const topEvents = defineEndpoint('top_events', {
+  nodes: [
+    node({
+      name: 'endpoint',
+      sql: 'SELECT event_name, count() AS count FROM events GROUP BY event_name LIMIT 10',
+    }),
+  ],
+  output: {
+    event_name: t.string(),
+    count: t.uint64(),
+  },
+  tokens: [{ token: appToken, scope: 'READ' }],
+})
+```
+
+### Multi-Resource Token Access
+
+```typescript
+import { defineDatasource, defineEndpoint, defineToken, node, t, engine } from '@tinybirdco/sdk'
+
+// Define a token once
+const publicApiToken = defineToken('public_api')
+
+// Use in multiple resources
+export const pageViews = defineDatasource('page_views', {
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['timestamp'] }),
+  tokens: [{ token: publicApiToken, scope: 'READ' }],
+})
+
+export const topPages = defineEndpoint('top_pages', {
+  nodes: [
+    node({
+      name: 'endpoint',
+      sql: 'SELECT pathname, count() AS views FROM page_views GROUP BY pathname LIMIT 10',
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+  tokens: [{ token: publicApiToken, scope: 'READ' }],
+})
+
+export const stats = defineEndpoint('stats', {
+  nodes: [
+    node({
+      name: 'endpoint',
+      sql: 'SELECT count() AS total FROM page_views',
+    }),
+  ],
+  output: { total: t.uint64() },
+  tokens: [{ token: publicApiToken, scope: 'READ' }],
+})
+```
+
+### Inline Token Configuration
+
+You can also define tokens inline without creating a reusable definition:
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk'
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['timestamp'] }),
+  tokens: [
+    // Inline token (not reusable)
+    { name: 'events_read', permissions: ['READ'] },
+  ],
+})
+```
+
+## Token Scopes
+
+### Datasource Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `READ` | Query access to the datasource |
+| `APPEND` | Ingest/append access to the datasource |
+
+### Pipe Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `READ` | Query access to the endpoint |
+
+Pipes only support `READ` scope.
+
+## TypeScript Type Safety
+
+The SDK provides autocomplete for the correct scopes based on the resource type:
+
+```typescript
+import { defineDatasource, defineEndpoint, defineToken, t, node, engine } from '@tinybirdco/sdk'
+
+const token = defineToken('my_token')
+
+// Datasources accept READ or APPEND
+const ds = defineDatasource('ds', {
+  schema: { id: t.string() },
+  tokens: [
+    { token, scope: 'READ' },    // ✓ Valid
+    { token, scope: 'APPEND' },  // ✓ Valid
+  ],
+})
+
+// Endpoints only accept READ
+const ep = defineEndpoint('ep', {
+  nodes: [node({ name: 'n', sql: 'SELECT 1' })],
+  output: { id: t.string() },
+  tokens: [
+    { token, scope: 'READ' },    // ✓ Valid
+    // { token, scope: 'APPEND' }, // ✗ TypeScript error
+  ],
+})
+```
+
+## Token Management Best Practices
+
+1. **Define tokens centrally**: Create a `tokens.ts` file to define all tokens in one place:
+
+```typescript
+// tokens.ts
+import { defineToken } from '@tinybirdco/sdk'
+
+export const publicApiToken = defineToken('public_api')
+export const internalApiToken = defineToken('internal_api')
+export const ingestToken = defineToken('ingest')
+export const adminToken = defineToken('admin')
+```
+
+2. **Use descriptive names**: Token names should clearly indicate their purpose:
+
+```typescript
+export const frontendReadToken = defineToken('frontend_read')
+export const backendIngestToken = defineToken('backend_ingest')
+export const analyticsReadToken = defineToken('analytics_read')
+```
+
+3. **Grant minimal permissions**: Only grant the scopes that are necessary:
+
+```typescript
+// Good: Separate read and write tokens
+const readToken = defineToken('app_read')
+const writeToken = defineToken('app_write')
+
+export const events = defineDatasource('events', {
+  schema: { id: t.string() },
+  tokens: [
+    { token: readToken, scope: 'READ' },
+    { token: writeToken, scope: 'APPEND' },
+  ],
+})
+```
+
+## JWT Tokens vs Static Tokens
+
+Static tokens (defined with `defineToken`) are different from JWT tokens:
+
+- **Static tokens**: Long-lived, defined in your schema, synced to Tinybird
+- **JWT tokens**: Short-lived, created dynamically at runtime using `client.tokens.createJWT()`
+
+For dynamic, scoped access (e.g., row-level security), use JWT tokens:
+
+```typescript
+import { createClient } from '@tinybirdco/sdk'
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_ADMIN_TOKEN!,
+})
+
+const { token } = await client.tokens.createJWT({
+  name: 'user_123_session',
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+  scopes: [
+    {
+      type: 'PIPES:READ',
+      resource: 'user_dashboard',
+      fixed_params: { user_id: 123 },
+    },
+  ],
+})
+```
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="defineDatasource" icon="table" href="/api/define-datasource">
+    Create datasources with token access
+  </Card>
+  <Card title="defineEndpoint" icon="arrow-up-right-dots" href="/api/define-endpoint">
+    Create endpoints with token access
+  </Card>
+  <Card title="JWT Tokens" icon="lock" href="/guides/jwt-tokens">
+    Create dynamic JWT tokens
+  </Card>
+</CardGroup>

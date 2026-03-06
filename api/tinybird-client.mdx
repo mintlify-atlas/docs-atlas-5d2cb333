@@ -1,0 +1,203 @@
+---
+title: "TinybirdClient"
+description: "Core client class for interacting with Tinybird API"
+---
+
+## Overview
+
+The `TinybirdClient` class is the core low-level client for interacting with the Tinybird API. It provides methods for querying pipe endpoints, ingesting events to datasources, and performing datasource operations.
+
+For a typed client experience with full TypeScript inference, use the [`Tinybird`](/api/typed-client) class instead.
+
+## Instantiation
+
+Create a new client instance using the `TinybirdClient` constructor or the `createClient` helper function:
+
+```typescript
+import { TinybirdClient, createClient } from '@tinybirdco/sdk';
+
+// Using constructor
+const client = new TinybirdClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+});
+
+// Using helper function (recommended)
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_URL,
+  token: process.env.TINYBIRD_TOKEN,
+});
+```
+
+## Configuration Options
+
+<ParamField path="baseUrl" type="string" required>
+  Tinybird API base URL (e.g., `'https://api.tinybird.co'` or `'https://api.us-east.tinybird.co'`)
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  API token for authentication
+</ParamField>
+
+<ParamField path="fetch" type="typeof fetch">
+  Custom fetch implementation (optional, defaults to global fetch)
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Default timeout in milliseconds for all requests
+</ParamField>
+
+<ParamField path="devMode" type="boolean">
+  Enable dev mode to automatically use branch tokens when on a feature branch. When enabled, the client detects the git branch and uses the corresponding Tinybird branch token instead of the workspace token.
+</ParamField>
+
+<ParamField path="configDir" type="string">
+  Directory to use as the starting point when searching for `tinybird.json` config. In monorepo setups, this should be set to the directory containing `tinybird.json` to ensure the config is found regardless of where the application runs from.
+</ParamField>
+
+## Properties
+
+### datasources
+
+Access datasource operations (ingest, append, replace, delete, truncate):
+
+```typescript
+const client = createClient({ baseUrl, token });
+
+// Ingest a single event
+await client.datasources.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+});
+
+// Append data from URL
+await client.datasources.append('events', {
+  url: 'https://example.com/events.csv',
+});
+```
+
+See [Datasource Operations](/api/datasource-operations) for full details.
+
+### tokens
+
+Access token operations (JWT creation, etc.):
+
+```typescript
+const { token } = await client.tokens.createJWT({
+  name: 'user_session',
+  expiresAt: new Date(Date.now() + 3600000),
+  scopes: [
+    {
+      type: 'PIPES:READ',
+      resource: 'user_dashboard',
+    },
+  ],
+});
+```
+
+## Methods
+
+### query()
+
+Query a pipe endpoint with parameters:
+
+```typescript
+const result = await client.query('top_events', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+});
+
+console.log(result.data); // Array of result rows
+console.log(result.rows); // Number of rows returned
+```
+
+See [Query](/api/query) for full details.
+
+### ingest()
+
+Ingest a single event to a datasource:
+
+```typescript
+await client.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+  user_id: 'user_123',
+});
+```
+
+See [Ingest](/api/ingest) for full details.
+
+### ingestBatch()
+
+Ingest multiple events in a single request:
+
+```typescript
+await client.ingestBatch('events', [
+  {
+    timestamp: '2024-01-15 10:30:00',
+    event_type: 'page_view',
+    user_id: 'user_123',
+  },
+  {
+    timestamp: '2024-01-15 10:31:00',
+    event_type: 'button_click',
+    user_id: 'user_456',
+  },
+]);
+```
+
+See [Ingest](/api/ingest) for full details.
+
+### sql()
+
+Execute a raw SQL query:
+
+```typescript
+const result = await client.sql(
+  'SELECT count() AS total FROM events WHERE event_type = \'page_view\''
+);
+
+console.log(result.data[0].total);
+```
+
+### getContext()
+
+Get the current client context with resolved configuration:
+
+```typescript
+const context = await client.getContext();
+
+console.log(context.branchName); // 'feature_my_branch'
+console.log(context.isBranchToken); // true
+console.log(context.gitBranch); // 'feature/my-branch'
+```
+
+**Returns:** `Promise<ClientContext>`
+
+```typescript
+interface ClientContext {
+  token: string;           // The resolved token (workspace or branch)
+  baseUrl: string;         // Tinybird API base URL
+  devMode: boolean;        // Whether dev mode is enabled
+  isBranchToken: boolean;  // Whether using a branch token
+  branchName: string | null;  // Tinybird branch name
+  gitBranch: string | null;   // Git branch name
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="createClient()" icon="plus" href="/api/create-client">
+    Helper function to create a client instance
+  </Card>
+  <Card title="Query" icon="magnifying-glass" href="/api/query">
+    Query pipe endpoints with parameters
+  </Card>
+  <Card title="Ingest" icon="arrow-down-to-bracket" href="/api/ingest">
+    Ingest data into datasources
+  </Card>
+  <Card title="Datasource Operations" icon="database" href="/api/datasource-operations">
+    Append, replace, delete, and truncate operations
+  </Card>
+</CardGroup>

@@ -1,0 +1,261 @@
+---
+title: 'defineMaterializedView'
+description: 'Define a Tinybird materialized view with automatic schema inference'
+---
+
+## Function Signature
+
+```typescript
+function defineMaterializedView<
+  TSchema extends SchemaDefinition,
+  TDatasource extends DatasourceDefinition<TSchema>
+>(
+  name: string,
+  options: MaterializedViewOptions<TDatasource>
+): PipeDefinition<Record<string, never>, DatasourceSchemaToOutput<TSchema>>
+```
+
+Define a Tinybird materialized view that continuously aggregates data into a target datasource. The output schema is automatically inferred from the target datasource for type safety.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The materialized view name. Must start with a letter or underscore and contain only alphanumeric characters and underscores.
+</ParamField>
+
+<ParamField path="options" type="MaterializedViewOptions<TDatasource>" required>
+  Materialized view configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="datasource" type="DatasourceDefinition" required>
+      Target datasource where materialized data is written. The output schema is automatically derived from this datasource.
+    </ParamField>
+
+    <ParamField path="nodes" type="readonly NodeDefinition[]" required>
+      Array of SQL transformation nodes. At least one node is required.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description of the materialized view
+    </ParamField>
+
+    <ParamField path="deploymentMethod" type="'alter'">
+      Use `'alter'` to update existing materialized views using ALTER TABLE ... MODIFY QUERY instead of recreating the table. This preserves existing data and reduces deployment time.
+    </ParamField>
+
+    <ParamField path="tokens" type="readonly PipeTokenConfig[]">
+      Access tokens for this materialized view pipe
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Type
+
+```typescript
+PipeDefinition<Record<string, never>, DatasourceSchemaToOutput<TSchema>>
+```
+
+A pipe definition configured as a materialized view with full type inference. Note that materialized views do not accept parameters.
+
+## Usage Examples
+
+### Basic Materialized View
+
+```typescript
+import { defineDatasource, defineMaterializedView, node, t, engine } from '@tinybirdco/sdk'
+
+// Target datasource for aggregated data
+const dailyStats = defineDatasource('daily_stats', {
+  description: 'Daily aggregated statistics',
+  schema: {
+    date: t.date(),
+    pathname: t.string(),
+    views: t.simpleAggregateFunction('sum', t.uint64()),
+    unique_sessions: t.aggregateFunction('uniq', t.string()),
+  },
+  engine: engine.aggregatingMergeTree({
+    sortingKey: ['date', 'pathname'],
+  }),
+})
+
+// Materialized view - output schema is inferred from datasource
+export const dailyStatsMv = defineMaterializedView('daily_stats_mv', {
+  description: 'Materialize daily page view aggregations',
+  datasource: dailyStats,
+  nodes: [
+    node({
+      name: 'aggregate',
+      sql: `
+        SELECT
+          toDate(timestamp) AS date,
+          pathname,
+          count() AS views,
+          uniqState(session_id) AS unique_sessions
+        FROM page_views
+        GROUP BY date, pathname
+      `,
+    }),
+  ],
+})
+```
+
+### With Deployment Method
+
+```typescript
+import { defineMaterializedView, node } from '@tinybirdco/sdk'
+import { salesByHour } from './datasources'
+
+export const salesByHourMv = defineMaterializedView('sales_by_hour_mv', {
+  description: 'Aggregate sales per hour',
+  datasource: salesByHour,
+  deploymentMethod: 'alter', // Use ALTER instead of DROP/CREATE
+  nodes: [
+    node({
+      name: 'hourly_sales',
+      sql: `
+        SELECT
+          toStartOfHour(timestamp) as hour,
+          country,
+          sum(amount) as total_sales
+        FROM sales
+        GROUP BY hour, country
+      `,
+    }),
+  ],
+})
+```
+
+### With AggregateFunction Columns
+
+```typescript
+import { defineDatasource, defineMaterializedView, node, t, engine } from '@tinybirdco/sdk'
+
+const userStats = defineDatasource('user_stats', {
+  schema: {
+    date: t.date(),
+    country: t.string().lowCardinality(),
+    total_events: t.simpleAggregateFunction('sum', t.uint64()),
+    unique_users: t.aggregateFunction('uniq', t.string()),
+    user_ids: t.aggregateFunction('groupArray', t.string()),
+  },
+  engine: engine.aggregatingMergeTree({
+    sortingKey: ['date', 'country'],
+  }),
+})
+
+export const userStatsMv = defineMaterializedView('user_stats_mv', {
+  datasource: userStats,
+  nodes: [
+    node({
+      name: 'aggregate',
+      sql: `
+        SELECT
+          toDate(timestamp) AS date,
+          country,
+          count() AS total_events,
+          uniqState(user_id) AS unique_users,
+          groupArrayState(user_id) AS user_ids
+        FROM events
+        GROUP BY date, country
+      `,
+    }),
+  ],
+})
+```
+
+### Multi-Node Materialized View
+
+```typescript
+import { defineMaterializedView, node } from '@tinybirdco/sdk'
+import { conversionFunnel } from './datasources'
+
+export const conversionFunnelMv = defineMaterializedView('conversion_funnel_mv', {
+  datasource: conversionFunnel,
+  nodes: [
+    node({
+      name: 'filtered',
+      sql: `
+        SELECT *
+        FROM events
+        WHERE event_type IN ('page_view', 'signup', 'purchase')
+      `,
+    }),
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT
+          toDate(timestamp) AS date,
+          event_type,
+          count() AS event_count
+        FROM filtered
+        GROUP BY date, event_type
+      `,
+    }),
+  ],
+})
+```
+
+## Schema Validation
+
+The SDK automatically validates that your materialized view output matches the target datasource schema:
+
+- All datasource columns must be present in the output
+- No extra columns can be in the output
+- Column types must be compatible
+- `SimpleAggregateFunction` and `AggregateFunction` types are automatically validated
+
+This prevents runtime errors and ensures type safety.
+
+## Querying Materialized Data
+
+To query the materialized data, create an endpoint that reads from the target datasource:
+
+```typescript
+import { defineEndpoint, node, p, t } from '@tinybirdco/sdk'
+
+export const getDailyStats = defineEndpoint('get_daily_stats', {
+  params: {
+    start_date: p.date(),
+    end_date: p.date(),
+  },
+  nodes: [
+    node({
+      name: 'query',
+      sql: `
+        SELECT
+          date,
+          pathname,
+          views,
+          uniqMerge(unique_sessions) as unique_sessions
+        FROM daily_stats
+        WHERE date BETWEEN {{Date(start_date)}} AND {{Date(end_date)}}
+        GROUP BY date, pathname
+        ORDER BY date DESC, views DESC
+      `,
+    }),
+  ],
+  output: {
+    date: t.date(),
+    pathname: t.string(),
+    views: t.uint64(),
+    unique_sessions: t.uint64(),
+  },
+})
+```
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="defineDatasource" icon="table" href="/api/define-datasource">
+    Create target datasources
+  </Card>
+  <Card title="definePipe" icon="pipe" href="/api/define-pipe">
+    Create transformation pipes
+  </Card>
+  <Card title="engine.aggregatingMergeTree" icon="gears" href="/api/engines">
+    Engine for materialized views
+  </Card>
+  <Card title="Aggregate Functions" icon="function" href="/api/types#aggregate-functions">
+    AggregateFunction column types
+  </Card>
+</CardGroup>

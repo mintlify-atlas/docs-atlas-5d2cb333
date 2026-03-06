@@ -1,0 +1,344 @@
+---
+title: Local Development
+description: Develop offline with a local Tinybird container using Docker
+---
+
+The Tinybird TypeScript SDK supports local development mode using a Docker container, allowing you to develop and test without affecting your cloud workspace.
+
+## Overview
+
+Local development mode uses the `tinybird-local` Docker container to run a full Tinybird instance on your machine. This provides:
+
+- **Offline development** - Work without internet connection
+- **Isolated testing** - No impact on cloud workspace
+- **Faster iteration** - No network latency
+- **Branch isolation** - Automatic workspace per git branch
+- **Zero configuration** - Tokens automatically managed
+
+## Quick Start
+
+### 1. Start the Container
+
+Run the Tinybird local container:
+
+```bash
+docker run -d -p 7181:7181 --name tinybird-local tinybirdco/tinybird-local:latest
+```
+
+This starts a Tinybird instance on `http://localhost:7181`.
+
+### 2. Configure Local Mode
+
+Set `devMode` to `"local"` in your config:
+
+```json tinybird.config.json
+{
+  "include": ["src/tinybird/datasources.ts", "src/tinybird/pipes.ts"],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co",
+  "devMode": "local"
+}
+```
+
+### 3. Start Development
+
+Run the dev command:
+
+```bash
+npx tinybird dev
+```
+
+Or use the `--local` flag to override config:
+
+```bash
+npx tinybird dev --local
+```
+
+## How Local Mode Works
+
+When `devMode: "local"` is configured:
+
+1. **Automatic tokens** - The SDK obtains tokens from the local container (no cloud auth needed)
+2. **Branch workspaces** - A workspace is created per git branch automatically
+3. **Local URL** - Requests go to `http://localhost:7181` instead of cloud API
+4. **Full features** - All Tinybird features work locally
+
+<Info>
+Local mode requires Docker to be installed and running on your machine.
+</Info>
+
+## Development Workflow
+
+### Watch Mode
+
+Use `dev` to watch for changes and sync automatically:
+
+```bash
+npx tinybird dev --local
+```
+
+This:
+- Watches your resource files for changes
+- Automatically syncs to local container
+- Validates schemas and SQL
+- Reports errors in real-time
+
+### Build Mode
+
+Build and push resources once:
+
+```bash
+npx tinybird build --local
+```
+
+Add `--dry-run` to preview without pushing:
+
+```bash
+npx tinybird build --local --dry-run
+```
+
+## Branch Isolation
+
+Local mode creates a separate workspace for each git branch:
+
+```bash
+# On branch: feature/new-dashboard
+npx tinybird dev --local
+# Creates workspace: feature_new_dashboard
+
+# Switch branch
+git checkout main
+npx tinybird dev --local
+# Uses workspace: main
+```
+
+This allows you to:
+- Test different features simultaneously
+- Isolate experimental changes
+- Avoid conflicts between branches
+
+## Switching Between Local and Cloud
+
+You can switch between local and cloud mode using CLI flags:
+
+```bash
+# Use local container
+npx tinybird dev --local
+
+# Use cloud with branches
+npx tinybird dev --branch
+```
+
+The CLI flag overrides the `devMode` setting in your config file.
+
+## Container Management
+
+### Check Container Status
+
+```bash
+docker ps
+```
+
+Look for `tinybird-local` in the output.
+
+### Stop Container
+
+```bash
+docker stop tinybird-local
+```
+
+### Start Existing Container
+
+```bash
+docker start tinybird-local
+```
+
+### Remove Container
+
+```bash
+docker rm -f tinybird-local
+```
+
+### View Container Logs
+
+```bash
+docker logs tinybird-local
+```
+
+### Access Container Shell
+
+```bash
+docker exec -it tinybird-local /bin/bash
+```
+
+## Querying Local Data
+
+Your application code works with local mode without changes:
+
+```typescript
+import { tinybird } from "@tinybird/client";
+
+// Queries local container when devMode is "local"
+const result = await tinybird.topPages.query({
+  start_date: "2024-01-01 00:00:00",
+  end_date: "2024-01-31 23:59:59",
+});
+```
+
+The SDK automatically uses `http://localhost:7181` when in local mode.
+
+## Inspecting Local Workspace
+
+Use the `info` command to see local workspace details:
+
+```bash
+npx tinybird info
+```
+
+Output includes:
+- Local container status
+- Workspace name
+- Token information
+- Branch details
+
+```json
+{
+  "workspace": {
+    "name": "feature_new_dashboard",
+    "id": "...",
+    "apiHost": "http://localhost:7181"
+  },
+  "local": {
+    "available": true,
+    "url": "http://localhost:7181",
+    "workspace": "feature_new_dashboard"
+  },
+  "project": {
+    "configPath": "/path/to/tinybird.config.json",
+    "devMode": "local"
+  }
+}
+```
+
+## Comparing with Cloud Mode
+
+| Feature | Local Mode | Cloud Mode |
+|---------|------------|------------|
+| **Internet required** | No | Yes |
+| **Authentication** | Automatic | Required (token) |
+| **Branch workspaces** | Automatic | Manual branches |
+| **Performance** | Fast (local) | Network latency |
+| **Data persistence** | Container lifetime | Permanent |
+| **Collaboration** | No | Yes |
+| **Production deploy** | Not supported | `tinybird deploy` |
+
+## When to Use Local Mode
+
+Local development mode is ideal for:
+
+<CardGroup cols={2}>
+  <Card title="Rapid prototyping" icon="rocket">
+    Quick iteration without cloud sync delays
+  </Card>
+  <Card title="Offline work" icon="wifi-slash">
+    Develop without internet connection
+  </Card>
+  <Card title="Testing" icon="flask">
+    Isolated environment for experiments
+  </Card>
+  <Card title="CI/CD" icon="code-branch">
+    Local testing in pipelines
+  </Card>
+</CardGroup>
+
+## Limitations
+
+Local mode has some limitations:
+
+- **No persistence** - Data is lost when container stops (unless using volumes)
+- **Single machine** - Can't share with team members
+- **No production deploy** - Must use cloud mode for production
+- **Resource limits** - Constrained by local machine resources
+
+<Warning>
+Local mode is for development only. Always use cloud mode with `tinybird deploy` for production deployments.
+</Warning>
+
+## Troubleshooting
+
+### Container Not Starting
+
+Check if port 7181 is already in use:
+
+```bash
+lsof -i :7181
+```
+
+Use a different port if needed:
+
+```bash
+docker run -d -p 8181:7181 --name tinybird-local tinybirdco/tinybird-local:latest
+```
+
+### Connection Errors
+
+Verify the container is running:
+
+```bash
+docker ps | grep tinybird-local
+```
+
+Check container logs:
+
+```bash
+docker logs tinybird-local
+```
+
+### Workspace Not Found
+
+Ensure you're in a git repository with a valid branch:
+
+```bash
+git branch --show-current
+```
+
+Local mode creates workspaces based on git branch names.
+
+## Next.js Integration
+
+Run both Next.js and Tinybird in local mode:
+
+```json package.json
+{
+  "scripts": {
+    "dev": "concurrently -n next,tinybird \"next dev\" \"tinybird dev --local\""
+  }
+}
+```
+
+This starts both servers together, with Tinybird using the local container.
+
+## Transitioning to Production
+
+When ready to deploy:
+
+1. Switch to branch mode:
+   ```json
+   {
+     "devMode": "branch"
+   }
+   ```
+
+2. Test on a cloud branch:
+   ```bash
+   git checkout -b staging
+   npx tinybird build
+   ```
+
+3. Deploy to production:
+   ```bash
+   git checkout main
+   npx tinybird deploy
+   ```
+
+Your TypeScript definitions work identically in both modes.

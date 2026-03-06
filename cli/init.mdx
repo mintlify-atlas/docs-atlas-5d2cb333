@@ -1,0 +1,344 @@
+---
+title: tinybird init
+description: Initialize a new Tinybird TypeScript project
+---
+
+Bootstraps a new Tinybird TypeScript project with configuration files, starter code, and optional CI/CD workflows.
+
+## Syntax
+
+```bash
+npx tinybird init [options]
+```
+
+## What It Creates
+
+The `init` command scaffolds a complete Tinybird project:
+
+1. **Configuration**: `tinybird.config.json` with your preferences
+2. **TypeScript file**: Starter code with datasources and endpoints
+3. **Environment file**: `.env.local` with authentication token
+4. **Package scripts**: Adds `tinybird:dev`, `tinybird:build`, `tinybird:deploy` to package.json
+5. **CI/CD workflows** (optional): GitHub Actions or GitLab CI templates
+
+## Interactive Setup
+
+When run without options, `init` guides you through setup:
+
+```bash
+npx tinybird init
+```
+
+<CodeGroup>
+```text Development Mode
+How do you want to develop with Tinybird?
+› Branches - Use Tinybird Cloud with git-based branching
+  Tinybird Local - Run your own Tinybird instance locally
+```
+
+```text File Location
+Where should we create initial tinybird.ts file?
+› src/lib/tinybird.ts
+```
+
+```text CI/CD Setup
+Set up CI/CD workflows?
+› GitHub Actions
+  GitLab CI
+  Skip
+```
+
+```text Extra Tools
+Install extra tools?
+☑ Agent skills
+☑ Syntax highlighting (Cursor/VS Code)
+```
+</CodeGroup>
+
+## Options
+
+### `--force`
+
+Overwrite existing files without prompting:
+
+```bash
+npx tinybird init --force
+```
+
+### `--skip-login`
+
+Skip the browser authentication flow:
+
+```bash
+npx tinybird init --skip-login
+```
+
+Useful when:
+- You already have credentials configured
+- Running in CI/CD environment
+- Testing setup scripts
+
+## Development Modes
+
+### Branch Mode (Recommended)
+
+Uses Tinybird Cloud with automatic branch management:
+
+```json tinybird.config.json
+{
+  "devMode": "branch",
+  "include": ["src/lib/tinybird.ts"],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co"
+}
+```
+
+- Creates isolated Tinybird branches from git branches
+- Perfect for team collaboration
+- Automatic branch cleanup
+
+### Local Mode
+
+Runs against a local Tinybird container:
+
+```json tinybird.config.json
+{
+  "devMode": "local",
+  "include": ["src/lib/tinybird.ts"],
+  "token": "${TINYBIRD_TOKEN}",
+  "baseUrl": "https://api.tinybird.co"
+}
+```
+
+Requires Docker:
+
+```bash
+docker run -d -p 7181:7181 --name tinybird-local tinybirdco/tinybird-local:latest
+```
+
+## Starter Template
+
+The generated `tinybird.ts` includes a working example:
+
+```typescript src/lib/tinybird.ts
+import {
+  defineDatasource,
+  defineEndpoint,
+  Tinybird,
+  node,
+  t,
+  p,
+  engine,
+} from "@tinybirdco/sdk";
+
+// Datasource definition
+export const pageViews = defineDatasource("page_views", {
+  description: "Page view tracking data",
+  schema: {
+    timestamp: t.dateTime(),
+    session_id: t.string(),
+    pathname: t.string(),
+    referrer: t.string().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["pathname", "timestamp"],
+  }),
+});
+
+// Endpoint definition
+export const topPages = defineEndpoint("top_pages", {
+  description: "Get the most visited pages",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+// Typed client
+export const tinybird = new Tinybird({
+  datasources: { pageViews },
+  pipes: { topPages },
+});
+```
+
+## Existing Datafiles
+
+If you have existing `.datasource` and `.pipe` files, `init` detects them:
+
+<CodeGroup>
+```text Include Option
+Found 3 .datasource files and 2 .pipe files in your project.
+
+› Include existing resources - Add to tinybird.json
+  Define resources in TypeScript - Generate TypeScript definitions
+  Skip - Don't include existing resources
+```
+
+```json Resulting Config
+{
+  "include": [
+    "src/lib/tinybird.ts",
+    "tinybird/events.datasource",
+    "tinybird/analytics.datasource",
+    "tinybird/top_events.pipe"
+  ]
+}
+```
+</CodeGroup>
+
+This enables incremental migration from datafiles to TypeScript.
+
+## CI/CD Workflows
+
+Optionally generate GitHub Actions or GitLab CI workflows:
+
+<CodeGroup>
+```yaml .github/workflows/tinybird-ci.yaml
+name: Tinybird CI
+
+on:
+  pull_request:
+    paths:
+      - "tinybird.config.*"
+      - "**/*.ts"
+
+env:
+  TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+
+jobs:
+  tinybird:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run tinybird:preview
+```
+
+```yaml .github/workflows/tinybird-cd.yaml
+name: Tinybird CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tinybird.config.*"
+      - "**/*.ts"
+
+env:
+  TINYBIRD_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+
+jobs:
+  tinybird:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run tinybird:deploy
+```
+</CodeGroup>
+
+## Package Scripts
+
+Added to your `package.json`:
+
+```json package.json
+{
+  "scripts": {
+    "tinybird:dev": "tinybird dev",
+    "tinybird:build": "tinybird build",
+    "tinybird:deploy": "tinybird deploy",
+    "tinybird:preview": "tinybird preview"
+  }
+}
+```
+
+## Extra Tools
+
+### Agent Skills
+
+Installs Tinybird-specific AI agent skills for better code assistance:
+
+```bash
+npx skills add tinybirdco/tinybird-agent-skills \
+  --skill tinybird \
+  --skill tinybird-typescript-sdk-guidelines
+```
+
+### Syntax Highlighting
+
+Installs VS Code/Cursor extension for Tinybird SQL highlighting in template literals.
+
+## Examples
+
+### Standard Setup
+
+Interactive setup with all prompts:
+
+```bash
+npx tinybird init
+```
+
+### Reinitialize Project
+
+Force overwrite with new configuration:
+
+```bash
+npx tinybird init --force
+```
+
+### CI Environment
+
+Skip login when credentials are already configured:
+
+```bash
+npx tinybird init --skip-login
+```
+
+## Next Steps
+
+After initialization:
+
+1. **Review configuration**: Check `tinybird.config.json`
+2. **Start development**: Run `npm run tinybird:dev`
+3. **Edit resources**: Modify `src/lib/tinybird.ts`
+4. **View dashboard**: Changes sync automatically to Tinybird
+
+## Troubleshooting
+
+<Warning>
+  If you see "No authentication found" during init, the browser login flow will start automatically. Make sure you have a Tinybird account.
+</Warning>
+
+<Note>
+  For monorepos, run `init` in each package that needs Tinybird. Each package gets its own `tinybird.config.json`.
+</Note>

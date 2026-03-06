@@ -1,0 +1,216 @@
+---
+title: "InferOutput<T> & InferOutputRow<T>"
+description: "Extract TypeScript output types from pipe definitions"
+---
+
+The SDK provides two utility types for extracting output types from pipe definitions:
+
+- `InferOutputRow<T>` - Extracts the type for a single output row
+- `InferOutput<T>` - Extracts the full output type (array of rows)
+
+## Type Signatures
+
+```typescript
+// Single row type
+export type InferOutputRow<T> = T extends PipeDefinition<ParamsDefinition, infer O>
+  ? { [K in keyof O]: InferColumn<O[K]> }
+  : never;
+
+// Array type
+export type InferOutput<T> = T extends PipeDefinition<ParamsDefinition, infer O>
+  ? { [K in keyof O]: InferColumn<O[K]> }[]
+  : never;
+```
+
+## InferOutputRow\<T\>
+
+Extracts the type for a single output row without the array wrapper.
+
+### Basic Example
+
+```typescript
+import { definePipe, t, type InferOutputRow } from '@tinybirdco/sdk';
+
+const myPipe = definePipe('my_pipe', {
+  params: {},
+  nodes: [...],
+  output: {
+    name: t.string(),
+    count: t.uint64(),
+  },
+});
+
+type MyOutputRow = InferOutputRow<typeof myPipe>;
+// { name: string; count: number }
+```
+
+### With Endpoint
+
+```typescript
+import { defineEndpoint, node, t, p, type InferOutputRow } from '@tinybirdco/sdk';
+
+const topPages = defineEndpoint('top_pages', {
+  description: 'Get the most visited pages',
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+type TopPagesOutput = InferOutputRow<typeof topPages>;
+// { pathname: string; views: bigint }
+```
+
+### Type-Safe Result Handling
+
+```typescript
+import { tinybird, type TopPagesOutput } from '@tinybird/client';
+
+const result = await tinybird.topPages.query({
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+  limit: 5,
+});
+
+// result.data is fully typed: TopPagesOutput[]
+result.data.forEach((row: TopPagesOutput) => {
+  console.log(`${row.pathname}: ${row.views} views`);
+});
+```
+
+## InferOutput\<T\>
+
+Extracts the full output type as an array of rows. This is useful when you need the complete array type.
+
+### Basic Example
+
+```typescript
+import { definePipe, t, type InferOutput } from '@tinybirdco/sdk';
+
+const myPipe = definePipe('my_pipe', {
+  params: {},
+  nodes: [...],
+  output: {
+    name: t.string(),
+    count: t.uint64(),
+  },
+});
+
+type MyOutput = InferOutput<typeof myPipe>;
+// { name: string; count: number }[]
+```
+
+### Complete Example
+
+```typescript
+import { defineEndpoint, node, t, p, type InferOutput } from '@tinybirdco/sdk';
+
+const topPages = defineEndpoint('top_pages', {
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `SELECT pathname, count() AS views FROM page_views`,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+type TopPagesOutput = InferOutput<typeof topPages>;
+// { pathname: string; views: bigint }[]
+```
+
+## When to Use Each Type
+
+<CardGroup cols={2}>
+  <Card title="InferOutputRow<T>" icon="square">
+    Use for individual row operations, type definitions, and when iterating over results
+  </Card>
+  <Card title="InferOutput<T>" icon="table-cells">
+    Use when you need the complete array type, such as function return types or state management
+  </Card>
+</CardGroup>
+
+### InferOutputRow\<T\> Use Cases
+
+```typescript
+// Exporting individual row types
+export type TopPagesRow = InferOutputRow<typeof topPages>;
+
+// Processing individual rows
+function processRow(row: TopPagesRow) {
+  return `${row.pathname}: ${row.views}`;
+}
+
+// Iterating with type safety
+result.data.forEach((row: TopPagesRow) => {
+  console.log(row.pathname);
+});
+```
+
+### InferOutput\<T\> Use Cases
+
+```typescript
+// Function return types
+function getTopPages(): Promise<InferOutput<typeof topPages>> {
+  return tinybird.topPages.query({ /* ... */ });
+}
+
+// State management
+const [data, setData] = useState<InferOutput<typeof topPages>>([]);
+
+// Complete result type
+type QueryResult = {
+  data: InferOutput<typeof topPages>;
+  meta: { timestamp: string };
+};
+```
+
+## Output Type Mapping
+
+| Tinybird Type | TypeScript Type |
+|---------------|----------------|
+| `t.string()` | `string` |
+| `t.int32()` | `number` |
+| `t.uint64()` | `bigint` |
+| `t.float64()` | `number` |
+| `t.bool()` | `boolean` |
+| `t.dateTime()` | `string` |
+| `t.date()` | `string` |
+| `t.array(T)` | `T[]` |
+
+## Related Types
+
+<CardGroup cols={2}>
+  <Card title="InferParams<T>" icon="sliders" href="/api/infer-params">
+    Extract parameter types from pipes
+  </Card>
+  <Card title="InferRow<T>" icon="table-rows" href="/api/infer-row">
+    Extract row types from datasources
+  </Card>
+</CardGroup>

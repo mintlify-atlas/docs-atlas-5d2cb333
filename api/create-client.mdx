@@ -1,0 +1,191 @@
+---
+title: "createClient()"
+description: "Create a low-level Tinybird client instance"
+---
+
+## Overview
+
+The `createClient()` function creates a new instance of the low-level [`TinybirdClient`](/api/tinybird-client) for interacting with the Tinybird API.
+
+For a typed client experience with full TypeScript inference based on your schema definitions, use the [`Tinybird`](/api/typed-client) class instead.
+
+## Usage
+
+```typescript
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_URL,
+  token: process.env.TINYBIRD_TOKEN,
+});
+```
+
+## Parameters
+
+<ParamField path="config" type="ClientConfig" required>
+  Client configuration object
+</ParamField>
+
+### ClientConfig
+
+<ParamField path="baseUrl" type="string" required>
+  Tinybird API base URL
+  
+  **Examples:**
+  - `'https://api.tinybird.co'` (EU region)
+  - `'https://api.us-east.tinybird.co'` (US region)
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  API token for authentication. Typically loaded from environment variables.
+  
+  ```typescript
+  token: process.env.TINYBIRD_TOKEN
+  ```
+</ParamField>
+
+<ParamField path="fetch" type="typeof fetch">
+  Custom fetch implementation. Defaults to global `fetch` if not provided.
+  
+  Useful for:
+  - Custom retry logic
+  - Request interceptors
+  - Testing with mocked responses
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Default timeout in milliseconds for all requests. Can be overridden per-request.
+  
+  ```typescript
+  timeout: 30000 // 30 seconds
+  ```
+</ParamField>
+
+<ParamField path="devMode" type="boolean">
+  Enable development mode to automatically use branch tokens when on a feature branch.
+  
+  When enabled, the client will:
+  - Detect the current git branch
+  - Use the corresponding Tinybird branch token instead of the workspace token
+  - Automatically create branches if they don't exist
+  
+  **Default:** `false`
+  
+  ```typescript
+  devMode: process.env.NODE_ENV === 'development'
+  ```
+</ParamField>
+
+<ParamField path="configDir" type="string">
+  Directory to use as the starting point when searching for `tinybird.json` config.
+  
+  In monorepo setups, set this to the directory containing `tinybird.json` to ensure the config is found regardless of where the application runs from.
+  
+  ```typescript
+  configDir: fileURLToPath(new URL('.', import.meta.url))
+  ```
+</ParamField>
+
+## Return Value
+
+Returns a configured [`TinybirdClient`](/api/tinybird-client) instance with methods for:
+- Querying pipe endpoints
+- Ingesting events
+- Datasource operations (append, replace, delete, truncate)
+- Token operations (JWT creation)
+- Raw SQL queries
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+});
+
+// Query a pipe
+const result = await client.query('top_pages', {
+  start_date: '2024-01-01',
+  end_date: '2024-01-31',
+});
+
+// Ingest an event
+await client.ingest('events', {
+  timestamp: '2024-01-15 10:30:00',
+  event_type: 'page_view',
+});
+```
+
+### With Development Mode
+
+Automatically use branch tokens during development:
+
+```typescript
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_URL ?? 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+  devMode: process.env.NODE_ENV === 'development',
+});
+
+// When on a feature branch, queries and ingestion
+// automatically use the branch token
+const context = await client.getContext();
+console.log(context.branchName); // 'feature_my_branch'
+```
+
+### With Custom Timeout
+
+```typescript
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+  timeout: 60000, // 60 seconds
+});
+```
+
+### With Custom Fetch (Node.js 16 or older)
+
+```typescript
+import fetch from 'node-fetch';
+
+const client = createClient({
+  baseUrl: 'https://api.tinybird.co',
+  token: process.env.TINYBIRD_TOKEN,
+  fetch: fetch as unknown as typeof globalThis.fetch,
+});
+```
+
+### Monorepo Setup
+
+```typescript
+import { fileURLToPath } from 'url';
+import { createClient } from '@tinybirdco/sdk';
+
+const client = createClient({
+  baseUrl: process.env.TINYBIRD_URL,
+  token: process.env.TINYBIRD_TOKEN,
+  configDir: fileURLToPath(new URL('.', import.meta.url)),
+  devMode: true,
+});
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="TinybirdClient" icon="gear" href="/api/tinybird-client">
+    Core client class documentation
+  </Card>
+  <Card title="Tinybird (Typed Client)" icon="code" href="/api/tinybird-client">
+    Type-safe client with schema inference
+  </Card>
+  <Card title="Query" icon="magnifying-glass" href="/api/query">
+    Query pipe endpoints
+  </Card>
+  <Card title="Ingest" icon="arrow-down-to-bracket" href="/api/ingest">
+    Ingest data into datasources
+  </Card>
+</CardGroup>

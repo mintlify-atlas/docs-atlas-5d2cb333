@@ -1,0 +1,226 @@
+---
+title: 'defineDatasource'
+description: 'Define a Tinybird datasource with full type safety'
+---
+
+## Function Signature
+
+```typescript
+function defineDatasource<TSchema extends SchemaDefinition>(
+  name: string,
+  options: DatasourceOptions<TSchema>
+): DatasourceDefinition<TSchema>
+```
+
+Define a Tinybird datasource with a typed schema and engine configuration.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The datasource name. Must start with a letter or underscore and contain only alphanumeric characters and underscores.
+</ParamField>
+
+<ParamField path="options" type="DatasourceOptions<TSchema>" required>
+  Datasource configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="schema" type="SchemaDefinition" required>
+      Column schema definition using type validators from `t.*`
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description of the datasource
+    </ParamField>
+
+    <ParamField path="engine" type="EngineConfig">
+      Table engine configuration (defaults to MergeTree if not specified)
+    </ParamField>
+
+    <ParamField path="tokens" type="readonly TokenConfig[]">
+      Access tokens for this datasource. Can be inline definitions or references to defined tokens.
+    </ParamField>
+
+    <ParamField path="sharedWith" type="readonly string[]">
+      Workspaces to share this datasource with
+    </ParamField>
+
+    <ParamField path="jsonPaths" type="boolean" default="true">
+      Whether to generate JSON path expressions for columns. Set to `false` for datasources that are targets of materialized views.
+    </ParamField>
+
+    <ParamField path="forwardQuery" type="string">
+      Forward query used to evolve a datasource with incompatible schema changes. Should be the SELECT clause only (no FROM/WHERE).
+    </ParamField>
+
+    <ParamField path="indexes" type="readonly DatasourceIndex[]">
+      Secondary indexes for MergeTree-family engines
+    </ParamField>
+
+    <ParamField path="kafka" type="KafkaConfig">
+      Kafka ingestion configuration. Mutually exclusive with `s3` and `gcs`.
+    </ParamField>
+
+    <ParamField path="s3" type="S3Config">
+      S3 import configuration. Mutually exclusive with `kafka` and `gcs`.
+    </ParamField>
+
+    <ParamField path="gcs" type="GCSConfig">
+      GCS import configuration. Mutually exclusive with `kafka` and `s3`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Type
+
+```typescript
+DatasourceDefinition<TSchema>
+```
+
+A datasource definition that can be used in a project with full type inference.
+
+## Related Types
+
+### SchemaDefinition
+
+```typescript
+type SchemaDefinition = Record<string, AnyTypeValidator | ColumnDefinition>
+```
+
+A schema is a record of column names to type validators (from `t.*`) or column definitions.
+
+### ColumnDefinition
+
+```typescript
+interface ColumnDefinition<T extends AnyTypeValidator = AnyTypeValidator> {
+  type: T
+  jsonPath?: string
+}
+```
+
+For complex column configurations with JSON extraction paths.
+
+### DatasourceIndex
+
+```typescript
+interface DatasourceIndex {
+  name: string
+  expr: string
+  type: string
+  granularity: number
+}
+```
+
+## Usage Examples
+
+### Basic Datasource
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk'
+
+export const events = defineDatasource('events', {
+  description: 'User event tracking data',
+  schema: {
+    timestamp: t.dateTime(),
+    event_id: t.uuid(),
+    user_id: t.string(),
+    event_type: t.string().lowCardinality(),
+    properties: t.string(), // JSON as string
+    session_id: t.string().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['user_id', 'timestamp'],
+    partitionKey: 'toYYYYMM(timestamp)',
+    ttl: 'timestamp + INTERVAL 90 DAY',
+  }),
+})
+```
+
+### With Kafka Ingestion
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk'
+import { eventsKafka } from './connections'
+
+export const kafkaEvents = defineDatasource('kafka_events', {
+  schema: {
+    timestamp: t.dateTime(),
+    payload: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['timestamp'] }),
+  kafka: {
+    connection: eventsKafka,
+    topic: 'events',
+    groupId: 'events-consumer',
+    autoOffsetReset: 'earliest',
+  },
+})
+```
+
+### With Access Tokens
+
+```typescript
+import { defineDatasource, defineToken, t } from '@tinybirdco/sdk'
+
+const readToken = defineToken('app_read')
+const ingestToken = defineToken('ingest_token')
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string(),
+  },
+  tokens: [
+    { token: readToken, scope: 'READ' },
+    { token: ingestToken, scope: 'APPEND' },
+  ],
+})
+```
+
+### With S3 Import
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk'
+import { landingS3 } from './connections'
+
+export const s3Landing = defineDatasource('s3_landing', {
+  schema: {
+    timestamp: t.dateTime(),
+    session_id: t.string(),
+  },
+  engine: engine.mergeTree({ sortingKey: ['timestamp'] }),
+  s3: {
+    connection: landingS3,
+    bucketUri: 's3://my-bucket/events/*.csv',
+    schedule: '@auto',
+  },
+})
+```
+
+## Type Inference
+
+Use `InferRow` to extract the TypeScript type for a datasource row:
+
+```typescript
+import { type InferRow } from '@tinybirdco/sdk'
+import { events } from './datasources'
+
+type EventsRow = InferRow<typeof events>
+// { timestamp: string, event_id: string, user_id: string, ... }
+```
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="defineEndpoint" icon="arrow-up-right-dots" href="/api/define-endpoint">
+    Create an API endpoint
+  </Card>
+  <Card title="definePipe" icon="pipe" href="/api/define-pipe">
+    Create a transformation pipe
+  </Card>
+  <Card title="defineMaterializedView" icon="database" href="/api/define-materialized-view">
+    Create a materialized view
+  </Card>
+  <Card title="Type Validators (t.*)" icon="check" href="/api/types">
+    Column type validators
+  </Card>
+</CardGroup>

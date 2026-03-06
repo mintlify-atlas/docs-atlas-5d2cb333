@@ -1,0 +1,150 @@
+---
+title: "InferParams<T>"
+description: "Extract TypeScript parameter types from pipe definitions"
+---
+
+`InferParams<T>` is a utility type that extracts the parameter type from a pipe definition, automatically handling required and optional parameters with proper TypeScript typing.
+
+## Type Signature
+
+```typescript
+export type InferParams<T> = T extends PipeDefinition<infer P, OutputDefinition>
+  ? {
+      [K in RequiredParamKeys<P>]: InferSingleParam<P[K]>;
+    } & {
+      [K in OptionalParamKeys<P>]?: InferSingleParam<P[K]>;
+    }
+  : never;
+```
+
+## Usage
+
+### Basic Example
+
+```typescript
+import { definePipe, p, type InferParams } from '@tinybirdco/sdk';
+
+const myPipe = definePipe('my_pipe', {
+  params: {
+    userId: p.string(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [...],
+  output: {...},
+});
+
+type MyParams = InferParams<typeof myPipe>;
+// { userId: string; limit?: number }
+```
+
+### With Endpoint Definition
+
+```typescript
+import { defineEndpoint, node, t, p, type InferParams } from '@tinybirdco/sdk';
+
+const topPages = defineEndpoint('top_pages', {
+  description: 'Get the most visited pages',
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+type TopPagesParams = InferParams<typeof topPages>;
+// { start_date: string; end_date: string; limit?: number }
+```
+
+### Type-Safe Query Execution
+
+```typescript
+import { tinybird, type TopPagesParams } from '@tinybird/client';
+
+// TypeScript enforces required parameters and validates types
+const params: TopPagesParams = {
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+  limit: 5, // optional
+};
+
+const result = await tinybird.topPages.query(params);
+```
+
+## Required vs Optional Parameters
+
+The type system automatically distinguishes between required and optional parameters:
+
+### Required Parameters
+
+Parameters defined without `.optional()` are required in the inferred type:
+
+```typescript
+const pipe = definePipe('my_pipe', {
+  params: {
+    userId: p.string(),
+    startDate: p.dateTime(),
+  },
+  // ...
+});
+
+type Params = InferParams<typeof pipe>;
+// { userId: string; startDate: string }
+```
+
+### Optional Parameters
+
+Parameters defined with `.optional()` become optional properties:
+
+```typescript
+const pipe = definePipe('my_pipe', {
+  params: {
+    userId: p.string(),
+    limit: p.int32().optional(10),
+    offset: p.int32().optional(0),
+  },
+  // ...
+});
+
+type Params = InferParams<typeof pipe>;
+// { userId: string; limit?: number; offset?: number }
+```
+
+## Parameter Type Mapping
+
+| Parameter Type | TypeScript Type |
+|----------------|----------------|
+| `p.string()` | `string` |
+| `p.int32()` | `number` |
+| `p.float64()` | `number` |
+| `p.dateTime()` | `string` |
+| `p.date()` | `string` |
+| `p.string().optional()` | `string \| undefined` |
+
+## Related Types
+
+<CardGroup cols={2}>
+  <Card title="InferOutputRow<T>" icon="arrow-right" href="/api/infer-output">
+    Extract output row types from pipes
+  </Card>
+  <Card title="InferOutput<T>" icon="table" href="/api/infer-output">
+    Extract full output array types from pipes
+  </Card>
+</CardGroup>

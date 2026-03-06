@@ -1,0 +1,308 @@
+---
+title: 'defineSinkPipe'
+description: 'Define a Tinybird sink pipe to export data to Kafka or S3'
+---
+
+## Function Signature
+
+```typescript
+function defineSinkPipe<TParams extends ParamsDefinition>(
+  name: string,
+  options: SinkPipeOptions<TParams>
+): PipeDefinition<TParams, Record<string, never>>
+```
+
+Define a Tinybird sink pipe that exports query results to external systems via Kafka or S3. Sink pipes can run on a schedule or be executed on demand.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The sink pipe name. Must start with a letter or underscore and contain only alphanumeric characters and underscores.
+</ParamField>
+
+<ParamField path="options" type="SinkPipeOptions<TParams>" required>
+  Sink pipe configuration object.
+
+  <Expandable title="properties">
+    <ParamField path="sink" type="KafkaSinkConfig | S3SinkConfig" required>
+      Sink export configuration. Must be either Kafka or S3.
+    </ParamField>
+
+    <ParamField path="nodes" type="readonly NodeDefinition[]" required>
+      Array of SQL transformation nodes. At least one node is required.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description of the sink pipe
+    </ParamField>
+
+    <ParamField path="params" type="ParamsDefinition">
+      Parameter definitions for query inputs using `p.*` validators
+    </ParamField>
+
+    <ParamField path="tokens" type="readonly PipeTokenConfig[]">
+      Access tokens for this sink pipe
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Type
+
+```typescript
+PipeDefinition<TParams, Record<string, never>>
+```
+
+A pipe definition configured as a sink pipe. Note that sink pipes do not have an output schema since they export to external systems.
+
+## Kafka Sink Configuration
+
+<ParamField path="sink" type="KafkaSinkConfig">
+  <Expandable title="properties">
+    <ParamField path="connection" type="KafkaConnectionDefinition" required>
+      Kafka connection used to publish records
+    </ParamField>
+
+    <ParamField path="topic" type="string" required>
+      Destination Kafka topic
+    </ParamField>
+
+    <ParamField path="schedule" type="string" required>
+      Sink schedule. Can be a cron expression (e.g., `'0 * * * *'`), `'@on-demand'`, or `'@once'`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## S3 Sink Configuration
+
+<ParamField path="sink" type="S3SinkConfig">
+  <Expandable title="properties">
+    <ParamField path="connection" type="S3ConnectionDefinition" required>
+      S3 connection used to write exported files
+    </ParamField>
+
+    <ParamField path="bucketUri" type="string" required>
+      Destination bucket URI (e.g., `'s3://bucket/prefix/'`)
+    </ParamField>
+
+    <ParamField path="fileTemplate" type="string" required>
+      Output filename template. Supports Tinybird placeholders like `{date}`, `{time}`, etc.
+    </ParamField>
+
+    <ParamField path="format" type="string" required>
+      Output format (e.g., `'csv'`, `'ndjson'`, `'parquet'`)
+    </ParamField>
+
+    <ParamField path="schedule" type="string" required>
+      Sink schedule. Can be a cron expression (e.g., `'0 * * * *'`), `'@on-demand'`, or `'@once'`
+    </ParamField>
+
+    <ParamField path="strategy" type="'create_new' | 'replace'" default="'create_new'">
+      Export strategy:
+      - `'create_new'`: Write new files on each run
+      - `'replace'`: Replace destination data on each run
+    </ParamField>
+
+    <ParamField path="compression" type="'none' | 'gzip' | 'snappy'" default="'none'">
+      Compression codec for output files
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Usage Examples
+
+### Kafka Sink
+
+```typescript
+import { defineSinkPipe, node } from '@tinybirdco/sdk'
+import { eventsKafka } from './connections'
+
+export const kafkaEventsSink = defineSinkPipe('kafka_events_sink', {
+  description: 'Export events to Kafka',
+  sink: {
+    connection: eventsKafka,
+    topic: 'events_export',
+    schedule: '@on-demand',
+  },
+  nodes: [
+    node({
+      name: 'publish',
+      sql: `
+        SELECT timestamp, event_name, user_id, properties
+        FROM events
+        WHERE timestamp >= now() - interval 1 hour
+      `,
+    }),
+  ],
+})
+```
+
+### S3 Sink with CSV Export
+
+```typescript
+import { defineSinkPipe, node } from '@tinybirdco/sdk'
+import { landingS3 } from './connections'
+
+export const s3EventsSink = defineSinkPipe('s3_events_sink', {
+  description: 'Export events to S3 as CSV',
+  sink: {
+    connection: landingS3,
+    bucketUri: 's3://my-bucket/exports/',
+    fileTemplate: 'events_{date}_{time}',
+    format: 'csv',
+    schedule: '@once',
+    strategy: 'create_new',
+    compression: 'gzip',
+  },
+  nodes: [
+    node({
+      name: 'export',
+      sql: `
+        SELECT timestamp, event_name, user_id
+        FROM events
+        WHERE timestamp >= now() - interval 1 day
+        ORDER BY timestamp
+      `,
+    }),
+  ],
+})
+```
+
+### Scheduled S3 Export
+
+```typescript
+import { defineSinkPipe, node } from '@tinybirdco/sdk'
+import { backupS3 } from './connections'
+
+export const dailyBackup = defineSinkPipe('daily_backup', {
+  description: 'Daily backup to S3',
+  sink: {
+    connection: backupS3,
+    bucketUri: 's3://backups/tinybird/',
+    fileTemplate: 'events_backup_{date}',
+    format: 'parquet',
+    schedule: '0 2 * * *', // Daily at 2 AM UTC
+    strategy: 'create_new',
+    compression: 'snappy',
+  },
+  nodes: [
+    node({
+      name: 'backup',
+      sql: `
+        SELECT *
+        FROM events
+        WHERE toDate(timestamp) = today() - 1
+      `,
+    }),
+  ],
+})
+```
+
+### Multi-Node Kafka Sink
+
+```typescript
+import { defineSinkPipe, node } from '@tinybirdco/sdk'
+import { alertsKafka } from './connections'
+
+export const anomalyAlerts = defineSinkPipe('anomaly_alerts', {
+  description: 'Publish anomaly alerts to Kafka',
+  sink: {
+    connection: alertsKafka,
+    topic: 'alerts',
+    schedule: '*/5 * * * *', // Every 5 minutes
+  },
+  nodes: [
+    node({
+      name: 'metrics',
+      sql: `
+        SELECT
+          toStartOfMinute(timestamp) AS minute,
+          count() AS request_count
+        FROM requests
+        WHERE timestamp >= now() - interval 5 minute
+        GROUP BY minute
+      `,
+    }),
+    node({
+      name: 'anomalies',
+      sql: `
+        SELECT
+          minute,
+          request_count,
+          'high_traffic' AS alert_type
+        FROM metrics
+        WHERE request_count > 10000
+      `,
+    }),
+  ],
+})
+```
+
+### S3 Sink with Partitioning
+
+```typescript
+import { defineSinkPipe, node, p } from '@tinybirdco/sdk'
+import { dataLakeS3 } from './connections'
+
+export const partitionedExport = defineSinkPipe('partitioned_export', {
+  description: 'Export partitioned data to S3',
+  params: {
+    export_date: p.date(),
+  },
+  sink: {
+    connection: dataLakeS3,
+    bucketUri: 's3://datalake/events/year={year}/month={month}/day={day}/',
+    fileTemplate: 'events_{time}',
+    format: 'parquet',
+    schedule: '@on-demand',
+    strategy: 'create_new',
+    compression: 'snappy',
+  },
+  nodes: [
+    node({
+      name: 'export',
+      sql: `
+        SELECT *
+        FROM events
+        WHERE toDate(timestamp) = {{Date(export_date)}}
+      `,
+    }),
+  ],
+})
+```
+
+## File Template Placeholders
+
+S3 sink file templates support the following placeholders:
+
+| Placeholder | Description | Example |
+|-------------|-------------|---------|
+| `{date}` | Current date (YYYY-MM-DD) | `2024-01-15` |
+| `{time}` | Current time (HH-MM-SS) | `14-30-00` |
+| `{timestamp}` | Unix timestamp | `1705329000` |
+| `{year}` | Current year | `2024` |
+| `{month}` | Current month (01-12) | `01` |
+| `{day}` | Current day (01-31) | `15` |
+| `{hour}` | Current hour (00-23) | `14` |
+
+## Schedule Options
+
+- **Cron expression**: `'0 * * * *'` (every hour), `'*/15 * * * *'` (every 15 minutes), etc.
+- **`@on-demand`**: Execute manually via CLI or API
+- **`@once`**: Execute once immediately after deployment
+
+## Related Functions
+
+<CardGroup cols={2}>
+  <Card title="defineKafkaConnection" icon="plug" href="/api/define-connection#kafka">
+    Create Kafka connections
+  </Card>
+  <Card title="defineS3Connection" icon="plug" href="/api/define-connection#s3">
+    Create S3 connections
+  </Card>
+  <Card title="definePipe" icon="pipe" href="/api/define-pipe">
+    Create transformation pipes
+  </Card>
+  <Card title="node" icon="circle-nodes" href="/api/define-pipe">
+    Create transformation nodes
+  </Card>
+</CardGroup>

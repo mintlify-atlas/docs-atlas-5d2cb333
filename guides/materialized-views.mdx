@@ -1,0 +1,321 @@
+---
+title: "Materialized Views"
+description: "Create real-time aggregations with materialized views"
+---
+
+Materialized views continuously aggregate data as new events arrive, providing real-time pre-computed results.
+
+## What are Materialized Views?
+
+Materialized views automatically update aggregations when new data is inserted into the source datasource. Unlike copy pipes that run on a schedule, materialized views update in real-time.
+
+**Use materialized views when:**
+- You need real-time aggregations
+- You want to pre-compute expensive queries
+- You're aggregating large amounts of data
+
+**Use copy pipes instead when:**
+- You need periodic snapshots
+- You want to control when aggregations run
+- You need to transform data from multiple sources
+
+## Defining Materialized Views
+
+Use `defineMaterializedView()` to create a materialized view:
+
+```typescript
+import { defineDatasource, defineMaterializedView, node, t, engine } from "@tinybirdco/sdk";
+
+// Target datasource for aggregated data
+export const dailyStats = defineDatasource("daily_stats", {
+  description: "Daily aggregated statistics",
+  schema: {
+    date: t.date(),
+    pathname: t.string(),
+    views: t.simpleAggregateFunction("sum", t.uint64()),
+    unique_sessions: t.aggregateFunction("uniq", t.string()),
+  },
+  engine: engine.aggregatingMergeTree({
+    sortingKey: ["date", "pathname"],
+  }),
+});
+
+// Materialized view that populates the datasource
+export const dailyStatsMv = defineMaterializedView("daily_stats_mv", {
+  description: "Materialize daily page view aggregations",
+  datasource: dailyStats,
+  nodes: [
+    node({
+      name: "aggregate",
+      sql: `
+        SELECT
+          toDate(timestamp) AS date,
+          pathname,
+          count() AS views,
+          uniqState(session_id) AS unique_sessions
+        FROM page_views
+        GROUP BY date, pathname
+      `,
+    }),
+  ],
+});
+```
+
+## Aggregate Functions
+
+Materialized views use special aggregate function types:
+
+### SimpleAggregateFunction
+
+For simple aggregations like `sum`, `min`, `max`, `any`:
+
+```typescript
+schema: {
+  total_views: t.simpleAggregateFunction("sum", t.uint64()),
+  max_duration: t.simpleAggregateFunction("max", t.float64()),
+  first_seen: t.simpleAggregateFunction("min", t.dateTime()),
+}
+```
+
+In your materialized view SQL:
+
+```sql
+SELECT
+  sum(views) AS total_views,
+  max(duration) AS max_duration,
+  min(timestamp) AS first_seen
+FROM source_table
+GROUP BY ...
+```
+
+### AggregateFunction
+
+For complex aggregations like `uniq`, `quantile`, `groupArray`:
+
+```typescript
+schema: {
+  unique_users: t.aggregateFunction("uniq", t.string()),
+  p95_latency: t.aggregateFunction("quantile(0.95)", t.float64()),
+  user_list: t.aggregateFunction("groupArray", t.string()),
+}
+```
+
+In your materialized view SQL, use the `State` suffix:
+
+```sql
+SELECT
+  uniqState(user_id) AS unique_users,
+  quantileState(0.95)(latency) AS p95_latency,
+  groupArrayState(user_id) AS user_list
+FROM source_table
+GROUP BY ...
+```
+
+## Querying Materialized Views
+
+Query the target datasource using merge combinators:
+
+```typescript
+import { defineEndpoint, node, t, p } from "@tinybirdco/sdk";
+
+export const getDailyStats = defineEndpoint("get_daily_stats", {
+  description: "Get daily statistics",
+  params: {
+    start_date: p.date(),
+    end_date: p.date(),
+  },
+  nodes: [
+    node({
+      name: "stats",
+      sql: `
+        SELECT
+          date,
+          pathname,
+          sumMerge(views) AS total_views,
+          uniqMerge(unique_sessions) AS unique_sessions
+        FROM daily_stats
+        WHERE date BETWEEN {{Date(start_date)}} AND {{Date(end_date)}}
+        GROUP BY date, pathname
+        ORDER BY total_views DESC
+      `,
+    }),
+  ],
+  output: {
+    date: t.date(),
+    pathname: t.string(),
+    total_views: t.uint64(),
+    unique_sessions: t.uint64(),
+  },
+});
+```
+
+**Merge combinators:**
+- `sumMerge()` for SimpleAggregateFunction(sum, ...)
+- `minMerge()` for SimpleAggregateFunction(min, ...)
+- `maxMerge()` for SimpleAggregateFunction(max, ...)
+- `uniqMerge()` for AggregateFunction(uniq, ...)
+- `quantileMerge(0.95)()` for AggregateFunction(quantile(0.95), ...)
+
+## Complete Example
+
+A full materialized view setup with hourly aggregations:
+
+```typescript
+import { defineDatasource, defineMaterializedView, defineEndpoint, node, t, p, engine } from "@tinybirdco/sdk";
+
+// Source datasource
+export const events = defineDatasource("events", {
+  schema: {
+    timestamp: t.dateTime(),
+    event_type: t.string().lowCardinality(),
+    user_id: t.string(),
+    amount: t.float64(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["timestamp"],
+  }),
+});
+
+// Target datasource with aggregate functions
+export const hourlyEventStats = defineDatasource("hourly_event_stats", {
+  description: "Hourly event aggregations",
+  schema: {
+    hour: t.dateTime(),
+    event_type: t.string().lowCardinality(),
+    event_count: t.simpleAggregateFunction("sum", t.uint64()),
+    unique_users: t.aggregateFunction("uniq", t.string()),
+    total_amount: t.simpleAggregateFunction("sum", t.float64()),
+  },
+  engine: engine.aggregatingMergeTree({
+    sortingKey: ["hour", "event_type"],
+  }),
+});
+
+// Materialized view
+export const hourlyEventStatsMv = defineMaterializedView("hourly_event_stats_mv", {
+  description: "Materialize hourly event statistics",
+  datasource: hourlyEventStats,
+  nodes: [
+    node({
+      name: "aggregate",
+      sql: `
+        SELECT
+          toStartOfHour(timestamp) AS hour,
+          event_type,
+          count() AS event_count,
+          uniqState(user_id) AS unique_users,
+          sum(amount) AS total_amount
+        FROM events
+        GROUP BY hour, event_type
+      `,
+    }),
+  ],
+});
+
+// Query endpoint
+export const getHourlyStats = defineEndpoint("get_hourly_stats", {
+  description: "Get hourly event statistics",
+  params: {
+    start_hour: p.dateTime(),
+    end_hour: p.dateTime(),
+    event_type: p.string().optional(),
+  },
+  nodes: [
+    node({
+      name: "stats",
+      sql: `
+        SELECT
+          hour,
+          event_type,
+          sumMerge(event_count) AS total_events,
+          uniqMerge(unique_users) AS unique_users,
+          sumMerge(total_amount) AS total_amount
+        FROM hourly_event_stats
+        WHERE hour BETWEEN {{DateTime(start_hour)}} AND {{DateTime(end_hour)}}
+        {% if defined(event_type) %}
+          AND event_type = {{String(event_type)}}
+        {% end %}
+        GROUP BY hour, event_type
+        ORDER BY hour DESC, total_events DESC
+      `,
+    }),
+  ],
+  output: {
+    hour: t.dateTime(),
+    event_type: t.string(),
+    total_events: t.uint64(),
+    unique_users: t.uint64(),
+    total_amount: t.float64(),
+  },
+});
+```
+
+## Deployment Methods
+
+Control how materialized views are updated during deployment:
+
+### Default (Recreate)
+
+Recreates the table when the schema changes:
+
+```typescript
+export const dailyStatsMv = defineMaterializedView("daily_stats_mv", {
+  datasource: dailyStats,
+  nodes: [/* ... */],
+});
+```
+
+### Alter Method
+
+Preserves existing data when only the query changes:
+
+```typescript
+export const dailyStatsMv = defineMaterializedView("daily_stats_mv", {
+  datasource: dailyStats,
+  nodes: [/* ... */],
+  deploymentMethod: "alter",
+});
+```
+
+Use `alter` when:
+- You're only changing the SQL query
+- You want to preserve existing aggregated data
+- You want faster deployments
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose the right engine">
+    Use `AggregatingMergeTree` for the target datasource when using `AggregateFunction` types.
+  </Step>
+  
+  <Step title="Match aggregate functions">
+    The aggregate function in your SQL must match the type in your schema:
+    - `simpleAggregateFunction("sum", ...)` → `sum()` in SQL
+    - `aggregateFunction("uniq", ...)` → `uniqState()` in SQL
+  </Step>
+  
+  <Step title="Use appropriate granularity">
+    Aggregate at the right time granularity:
+    - `toStartOfHour()` for hourly aggregations
+    - `toStartOfDay()` / `toDate()` for daily aggregations
+    - `toStartOfInterval()` for custom intervals
+  </Step>
+  
+  <Step title="Query with merge combinators">
+    Always use merge combinators when querying:
+    - `sumMerge()` for SimpleAggregateFunction(sum, ...)
+    - `uniqMerge()` for AggregateFunction(uniq, ...)
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Copy Pipes" icon="copy" href="/guides/copy-pipes">
+    Learn about scheduled data snapshots
+  </Card>
+  <Card title="Type-Safe Client" icon="code" href="/guides/type-safe-client">
+    Query your materialized views with type safety
+  </Card>
+</CardGroup>

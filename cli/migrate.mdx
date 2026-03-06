@@ -1,0 +1,473 @@
+---
+title: tinybird migrate
+description: Migrate Tinybird datafiles to TypeScript definitions
+---
+
+Converts Tinybird datafiles (`.datasource`, `.pipe`, `.connection`) into a single TypeScript file with fully-typed definitions.
+
+## Syntax
+
+```bash
+tinybird migrate <patterns...> [options]
+```
+
+## Basic Usage
+
+<CodeGroup>
+```bash Migrate Directory
+tinybird migrate tinybird/
+```
+
+```bash Migrate Specific Files
+tinybird migrate events.datasource analytics.pipe
+```
+
+```bash Migrate with Glob
+tinybird migrate "tinybird/**/*.datasource" "tinybird/**/*.pipe"
+```
+</CodeGroup>
+
+## How It Works
+
+1. Discovers `.datasource`, `.pipe`, `.connection` files
+2. Parses each file's configuration
+3. Validates references between resources
+4. Infers parameter types and defaults
+5. Generates TypeScript with full type safety
+6. Writes to output file (default: `tinybird.migration.ts`)
+
+## Output Example
+
+```bash
+tinybird migrate tinybird/
+```
+
+```text Terminal
+Discovering resources...
+✓ Found 3 .datasource files
+✓ Found 2 .pipe files
+
+Migrating resources...
+✓ events.datasource → TypeScript
+✓ page_views.datasource → TypeScript
+✓ sessions.datasource → TypeScript
+✓ top_pages.pipe → TypeScript
+✓ analytics.pipe → TypeScript
+
+Successfully migrated 5 resources
+✓ Output: tinybird.migration.ts
+```
+
+## Options
+
+### `--out <path>`
+
+Specify output file path:
+
+```bash
+tinybird migrate tinybird/ --out src/tinybird.ts
+```
+
+Default: `tinybird.migration.ts` in current directory
+
+### `--dry-run`
+
+Preview migration without writing file:
+
+```bash
+tinybird migrate tinybird/ --dry-run
+```
+
+```text Output
+Migration preview:
+✓ 5 resources would be migrated
+  • 3 datasources
+  • 2 pipes
+  
+No files written (dry run)
+```
+
+### `--force`
+
+Overwrite existing output file:
+
+```bash
+tinybird migrate tinybird/ --out tinybird.ts --force
+```
+
+Without `--force`, migration fails if output file exists.
+
+### `--strict`
+
+Fail on any errors (default):
+
+```bash
+tinybird migrate tinybird/ --strict
+```
+
+Disable with `--no-strict` to continue despite errors.
+
+## Pattern Matching
+
+### Files
+
+```bash
+tinybird migrate events.datasource analytics.pipe
+```
+
+Migrates specific files.
+
+### Directories
+
+```bash
+tinybird migrate tinybird/
+```
+
+Recursively finds all `.datasource` and `.pipe` files.
+
+### Glob Patterns
+
+```bash
+tinybird migrate "tinybird/**/*.datasource"
+```
+
+```bash
+tinybird migrate "tinybird/datasources/*.datasource" "tinybird/pipes/*.pipe"
+```
+
+Supports standard glob syntax.
+
+### Multiple Patterns
+
+```bash
+tinybird migrate \
+  tinybird/datasources/ \
+  tinybird/pipes/ \
+  tinybird/connections/
+```
+
+## Generated TypeScript
+
+### Datasource Migration
+
+Input `.datasource` file:
+
+```text events.datasource
+SCHEMA >
+  timestamp DateTime,
+  event_name LowCardinality(String),
+  user_id Nullable(String),
+  properties String
+
+ENGINE "MergeTree"
+ENGINE_SORTING_KEY "event_name, timestamp"
+ENGINE_PARTITION_KEY "toYYYYMM(timestamp)"
+ENGINE_TTL "timestamp + INTERVAL 90 DAY"
+```
+
+Generated TypeScript:
+
+```typescript tinybird.migration.ts
+import { defineDatasource, t, engine } from "@tinybirdco/sdk";
+
+export const events = defineDatasource("events", {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string().lowCardinality(),
+    user_id: t.string().nullable(),
+    properties: t.string(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ["event_name", "timestamp"],
+    partitionKey: "toYYYYMM(timestamp)",
+    ttl: "timestamp + INTERVAL 90 DAY",
+  }),
+});
+```
+
+### Pipe Migration
+
+Input `.pipe` file:
+
+```text top_pages.pipe
+DESCRIPTION >
+  Get the most visited pages
+
+NODE aggregated
+SQL >
+  SELECT
+    pathname,
+    count() AS views
+  FROM page_views
+  WHERE timestamp >= {{DateTime(start_date)}}
+    AND timestamp <= {{DateTime(end_date)}}
+  GROUP BY pathname
+  ORDER BY views DESC
+  LIMIT {{Int32(limit, 10)}}
+```
+
+Generated TypeScript:
+
+```typescript tinybird.migration.ts
+import { defineEndpoint, node, t, p } from "@tinybirdco/sdk";
+
+export const topPages = defineEndpoint("top_pages", {
+  description: "Get the most visited pages",
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+  },
+  nodes: [
+    node({
+      name: "aggregated",
+      sql: `
+        SELECT
+          pathname,
+          count() AS views
+        FROM page_views
+        WHERE timestamp >= {{DateTime(start_date)}}
+          AND timestamp <= {{DateTime(end_date)}}
+        GROUP BY pathname
+        ORDER BY views DESC
+        LIMIT {{Int32(limit, 10)}}
+      `,
+    }),
+  ],
+});
+```
+
+### Connection Migration
+
+Input `.connection` file:
+
+```text kafka.connection
+TYPE kafka
+KAFKA_BOOTSTRAP_SERVERS kafka.example.com:9092
+KAFKA_SECURITY_PROTOCOL SASL_SSL
+KAFKA_SASL_MECHANISM PLAIN
+```
+
+Generated TypeScript:
+
+```typescript tinybird.migration.ts
+import { defineKafkaConnection, secret } from "@tinybirdco/sdk";
+
+export const kafka = defineKafkaConnection("kafka", {
+  bootstrapServers: "kafka.example.com:9092",
+  securityProtocol: "SASL_SSL",
+  saslMechanism: "PLAIN",
+  key: secret("KAFKA_KEY"),
+  secret: secret("KAFKA_SECRET"),
+});
+```
+
+## Parameter Inference
+
+Migrate infers parameter types and defaults from SQL:
+
+```sql
+-- Scalar with default
+{{String(env, 'prod')}}
+  ↓
+p.string().optional('prod')
+
+-- Required parameter
+{{DateTime(start_date)}}
+  ↓
+p.dateTime()
+
+-- Array parameter (no default inference)
+{{Array(ids, 'String')}}
+  ↓
+p.array(p.string())
+```
+
+## Dependency Resolution
+
+Migrate validates and orders resources:
+
+```typescript
+// Connection first
+export const kafka = defineKafkaConnection("kafka", {...});
+
+// Datasource references connection
+export const events = defineDatasource("events", {
+  kafka: { connection: kafka },
+  ...
+});
+
+// Pipe references datasource (validated)
+export const topEvents = defineEndpoint("top_events", {
+  nodes: [
+    node({
+      sql: "SELECT * FROM events",  // ✓ references events
+    }),
+  ],
+});
+```
+
+## Error Handling
+
+### Missing Connection
+
+```text
+Error: Datasource 'events' references missing connection 'kafka'
+  File: events.datasource
+```
+
+Migrate all dependencies together:
+
+```bash
+tinybird migrate kafka.connection events.datasource
+```
+
+### Invalid Schema
+
+```text
+Error: Invalid schema in datasource 'events'
+  Invalid type: CustomType
+  File: events.datasource:3
+```
+
+Fix schema in source file and re-run.
+
+### Parse Error
+
+```text
+Error: Failed to parse pipe 'top_pages'
+  Unexpected token at line 12
+  File: top_pages.pipe:12
+```
+
+Check syntax in source file.
+
+## Incremental Migration
+
+Migrate in stages:
+
+### Step 1: Migrate Connections
+
+```bash
+tinybird migrate "tinybird/**/*.connection" --out connections.ts
+```
+
+### Step 2: Migrate Datasources
+
+```bash
+tinybird migrate "tinybird/**/*.datasource" --out datasources.ts
+```
+
+### Step 3: Migrate Pipes
+
+```bash
+tinybird migrate "tinybird/**/*.pipe" --out pipes.ts
+```
+
+### Step 4: Combine
+
+```typescript tinybird.ts
+export * from "./connections";
+export * from "./datasources";
+export * from "./pipes";
+```
+
+## Mixed Workflow
+
+Continue using datafiles alongside TypeScript:
+
+```json tinybird.config.json
+{
+  "include": [
+    "src/tinybird.ts",           // TypeScript
+    "tinybird/*.datasource",     // Legacy datafiles
+    "tinybird/*.pipe"            // Legacy datafiles
+  ]
+}
+```
+
+Migrate incrementally without breaking changes.
+
+## Examples
+
+### Migrate Entire Project
+
+```bash
+tinybird migrate tinybird/ --out src/tinybird.ts
+```
+
+### Preview Migration
+
+```bash
+tinybird migrate tinybird/ --dry-run
+```
+
+### Migrate with Validation
+
+```bash
+tinybird migrate tinybird/ --strict
+```
+
+### Continue Despite Errors
+
+```bash
+tinybird migrate tinybird/ --no-strict
+```
+
+Migrates valid resources, reports errors for invalid ones.
+
+### Overwrite Existing File
+
+```bash
+tinybird migrate tinybird/ --out tinybird.ts --force
+```
+
+## Migration Checklist
+
+1. **Backup** original datafiles
+2. **Run migration** with `--dry-run` first
+3. **Review** generated TypeScript
+4. **Test** with `tinybird build --dry-run`
+5. **Update config** to include new TypeScript file
+6. **Deploy** to test branch
+7. **Verify** in Tinybird dashboard
+8. **Archive** or delete old datafiles
+
+## Troubleshooting
+
+### Output File Exists
+
+```text
+Error: Output file already exists: tinybird.migration.ts
+Use --force to overwrite.
+```
+
+Use `--force` or choose different output path.
+
+### No Resources Found
+
+```text
+Error: No .datasource or .pipe files found in: tinybird/
+```
+
+Check pattern and directory structure.
+
+### Unsupported Feature
+
+```text
+Warning: Materialized view 'daily_stats_mv' uses unsupported feature
+  Feature: POPULATE
+  Manual migration required
+```
+
+Some advanced features require manual migration.
+
+## Related Commands
+
+- **init**: Initialize new TypeScript project
+- **pull**: Download resources from cloud
+- **build**: Test migrated resources
+
+<Note>
+  Migration is one-way. Keep original datafiles as backup until migration is verified in production.
+</Note>

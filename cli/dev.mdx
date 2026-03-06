@@ -1,0 +1,337 @@
+---
+title: tinybird dev
+description: Watch for changes and automatically sync with Tinybird
+---
+
+Starts a development server that watches your TypeScript files and automatically syncs changes to Tinybird. Supports both Tinybird Cloud branches and local Tinybird containers.
+
+## Syntax
+
+```bash
+tinybird dev [options]
+```
+
+## How It Works
+
+1. Watches all files in your `include` paths from config
+2. Detects changes to `.ts` and `.js` files
+3. Rebuilds and pushes to Tinybird automatically
+4. Validates schemas after each deploy
+5. Shows real-time build status
+
+## Basic Usage
+
+<CodeGroup>
+```bash Branch Mode (Default)
+tinybird dev
+```
+
+```bash Local Mode
+tinybird dev --local
+```
+</CodeGroup>
+
+## Output Example
+
+```text
+✓ Branch ready: feature/analytics (created)
+✓ Dashboard: https://ui.tinybird.co/my-workspace/branch/feature-analytics
+
+Watching for changes...
+
+[10:23:45] File changed: src/tinybird.ts
+[10:23:46] Building...
+[10:23:47] ✓ Deployed to feature/analytics
+  • Datasources: 2 unchanged
+  • Pipes: 1 changed (top_pages)
+
+Watching for changes...
+```
+
+## Options
+
+### `--local`
+
+Use local Tinybird container instead of cloud:
+
+```bash
+tinybird dev --local
+```
+
+Requires Docker container running:
+
+```bash
+docker run -d -p 7181:7181 --name tinybird-local tinybirdco/tinybird-local:latest
+```
+
+### `--branch`
+
+Explicitly use Tinybird cloud with branches:
+
+```bash
+tinybird dev --branch
+```
+
+This is the default mode when `devMode` is not set in config.
+
+## Development Modes
+
+### Branch Mode
+
+Creates isolated Tinybird branches from your git branches:
+
+```bash
+# On feature branch
+git checkout -b feature/new-endpoint
+tinybird dev
+```
+
+```text Output
+✓ Branch ready: feature/new-endpoint (created)
+✓ Dashboard: https://ui.tinybird.co/workspace/branch/feature-new-endpoint
+```
+
+- Automatically creates Tinybird branch on first run
+- Reuses existing branch on subsequent runs
+- Each team member gets isolated workspace
+- Branch token cached locally for performance
+
+### Local Mode
+
+Develops against local Tinybird container:
+
+```bash
+tinybird dev --local
+```
+
+```text Output
+✓ Local workspace ready: feature-new-endpoint
+✓ Dashboard: http://localhost:7181/feature-new-endpoint
+```
+
+- Works offline without cloud connection
+- Faster iteration (no network latency)
+- Perfect for testing schema changes
+- Automatically creates workspace per branch
+
+## Main Branch Protection
+
+<Warning>
+  Dev mode is **blocked on main branch** to prevent accidental production deployments.
+</Warning>
+
+```bash
+# On main branch
+tinybird dev
+```
+
+```text Error
+Cannot use 'dev' command on main branch.
+Use 'tinybird deploy' to deploy to production,
+or switch to a feature branch.
+```
+
+To deploy to production:
+
+```bash
+tinybird deploy
+```
+
+## File Watching
+
+The dev server watches files based on your config:
+
+```json tinybird.config.json
+{
+  "include": [
+    "src/tinybird.ts",
+    "src/tinybird/**/*.ts"
+  ]
+}
+```
+
+Watches:
+- All directories containing included files
+- Supports glob patterns
+- Ignores `node_modules/` and dotfiles
+- Debounces rapid changes (100ms default)
+
+## Auto-Sync Behavior
+
+### What Triggers a Build
+
+- File changes in watched directories
+- File additions (new `.ts` files)
+- File deletions (removed resources)
+
+### What's Ignored
+
+- Dotfiles (`.env`, `.git/`)
+- `node_modules/`
+- Temporary build files
+- Non-TypeScript files (unless `.js`)
+
+## Schema Validation
+
+After each successful deploy, dev mode validates pipe schemas:
+
+```text
+✓ Deployed to feature/analytics
+  • Pipes: 1 changed (top_pages)
+
+⚠ Schema mismatch detected:
+  Pipe: top_pages
+  Expected: { pathname: string, views: bigint }
+  Actual:   { pathname: string, views: bigint, rank: number }
+
+  Tip: Update your output schema to match the query result
+```
+
+This catches mismatches between your TypeScript types and actual SQL output.
+
+## Authentication
+
+If not authenticated, dev mode starts browser login:
+
+```text
+No authentication found. Starting login flow...
+
+Opening browser for authentication...
+✓ Logged in as user@example.com
+✓ Workspace: my-workspace
+
+Starting dev mode...
+```
+
+Credentials are saved to `.env.local` for future runs.
+
+## Performance
+
+### Debouncing
+
+Rapid file changes are debounced (100ms) to avoid excessive builds:
+
+```typescript
+// Save file multiple times quickly
+// Only triggers one build
+```
+
+### Incremental Builds
+
+Only changed resources are pushed:
+
+```text
+✓ Deployed
+  • Datasources: 3 unchanged
+  • Pipes: 1 changed, 2 unchanged
+```
+
+### Branch Token Caching
+
+Branch tokens are cached locally to avoid API calls:
+
+```bash
+~/.tinybird/branches.json
+```
+
+## Examples
+
+### Development Workflow
+
+```bash
+# Create feature branch
+git checkout -b feature/user-analytics
+
+# Start dev mode
+tinybird dev
+
+# Edit your code
+vim src/tinybird.ts
+
+# Changes auto-sync to Tinybird
+# View in dashboard
+```
+
+### Local Development
+
+```bash
+# Start local container
+docker run -d -p 7181:7181 tinybirdco/tinybird-local:latest
+
+# Dev against local
+tinybird dev --local
+
+# Fast iteration without cloud
+```
+
+### Next.js Integration
+
+Run Next.js and Tinybird dev together:
+
+```json package.json
+{
+  "scripts": {
+    "dev": "concurrently -n next,tinybird \"next dev\" \"tinybird dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
+```
+
+```bash
+npm run dev
+```
+
+Both servers run in parallel.
+
+## Stopping Dev Mode
+
+Press `Ctrl+C` to stop watching:
+
+```text
+Watching for changes...
+^C
+Stopping dev mode...
+✓ Stopped
+```
+
+## Troubleshooting
+
+### Branch Already Exists
+
+Dev mode reuses existing branches:
+
+```text
+✓ Branch ready: feature/analytics (found)
+```
+
+No action needed. Your branch token is cached.
+
+### Local Container Not Running
+
+```text
+Error: Local Tinybird container is not running.
+Start it with:
+  docker run -d -p 7181:7181 tinybirdco/tinybird-local:latest
+```
+
+### File Watch Limit (Linux)
+
+If you see "ENOSPC" errors:
+
+```bash
+# Increase file watch limit
+echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+## Related Commands
+
+- **build**: One-time build to branch (no watching)
+- **deploy**: Deploy to production
+- **branch**: Manage branches manually
+
+<Note>
+  Dev mode is designed for active development. For CI/CD, use `build` or `deploy` commands instead.
+</Note>

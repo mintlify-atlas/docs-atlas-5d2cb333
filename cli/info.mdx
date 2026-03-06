@@ -1,0 +1,473 @@
+---
+title: tinybird info
+description: Display project, workspace, and environment information
+---
+
+Displays comprehensive information about your Tinybird project, workspace, authentication, and current branch. Useful for debugging and verifying configuration.
+
+## Syntax
+
+```bash
+tinybird info [options]
+```
+
+## Basic Usage
+
+<CodeGroup>
+```bash Human-Readable Output
+tinybird info
+```
+
+```bash JSON Output
+tinybird info --json
+```
+</CodeGroup>
+
+## Output Example
+
+```bash
+tinybird info
+```
+
+```text Terminal
+Workspace:
+  Name:       my-workspace
+  ID:         f7e8d9c0-1234-5678-90ab-cdef12345678
+  Email:      user@example.com
+  Region:     Europe (api.tinybird.co)
+  Dashboard:  https://ui.tinybird.co/my-workspace
+  Token:      p.eyJ1IjogIjEyMzQ1Njc4... (valid)
+
+Branch:
+  Git:        feature/analytics
+  Tinybird:   feature-analytics
+  Status:     active
+  Created:    2024-01-15 10:23
+  Dashboard:  https://ui.tinybird.co/my-workspace/branch/feature-analytics
+
+Project:
+  Directory:  /Users/you/project
+  Config:     tinybird.config.json
+  Dev Mode:   branch
+  Main:       no
+
+Branches (3):
+  • feature-analytics (current)
+  • feature-user-events
+  • fix-schema-bug
+```
+
+## Options
+
+### `--json`
+
+Output as JSON for scripting:
+
+```bash
+tinybird info --json
+```
+
+```json
+{
+  "success": true,
+  "cloud": {
+    "workspaceName": "my-workspace",
+    "workspaceId": "f7e8d9c0-1234-5678-90ab-cdef12345678",
+    "userEmail": "user@example.com",
+    "apiHost": "https://api.tinybird.co",
+    "dashboardUrl": "https://ui.tinybird.co/my-workspace",
+    "token": "p.eyJ1IjogIjEyMzQ1Njc4..."
+  },
+  "project": {
+    "cwd": "/Users/you/project",
+    "configPath": "tinybird.config.json",
+    "devMode": "branch",
+    "gitBranch": "feature/analytics",
+    "tinybirdBranch": "feature-analytics",
+    "isMainBranch": false
+  },
+  "branch": {
+    "name": "feature-analytics",
+    "id": "branch-id-456",
+    "token": "p.branch_token...",
+    "dashboardUrl": "https://ui.tinybird.co/my-workspace/branch/feature-analytics"
+  },
+  "branches": [
+    {
+      "name": "feature-analytics",
+      "id": "branch-id-456",
+      "createdAt": "2024-01-15T10:23:00Z"
+    }
+  ]
+}
+```
+
+## Information Sections
+
+### Workspace
+
+Your Tinybird workspace details:
+
+```text
+Workspace:
+  Name:       my-workspace
+  ID:         f7e8d9c0-1234-5678-90ab-cdef12345678
+  Email:      user@example.com
+  Region:     Europe (api.tinybird.co)
+  Dashboard:  https://ui.tinybird.co/my-workspace
+  Token:      p.eyJ1IjogIjEyMzQ1Njc4... (valid)
+```
+
+- **Name**: Workspace name in Tinybird
+- **ID**: Unique workspace identifier
+- **Email**: Your Tinybird account email
+- **Region**: API region (Europe or US East)
+- **Dashboard**: Link to workspace dashboard
+- **Token**: Current auth token (truncated)
+
+### Local (Local Mode Only)
+
+When using local Tinybird:
+
+```bash
+tinybird info  # with devMode: "local"
+```
+
+```text
+Local:
+  Running:    yes
+  Workspace:  feature-analytics
+  ID:         local-workspace-id
+  API:        http://localhost:7181
+  Dashboard:  http://localhost:7181/feature-analytics
+```
+
+- **Running**: Whether local container is active
+- **Workspace**: Local workspace name
+- **API**: Local API URL
+- **Dashboard**: Local dashboard URL
+
+### Branch (Branch Mode)
+
+Current branch information:
+
+```text
+Branch:
+  Git:        feature/analytics
+  Tinybird:   feature-analytics
+  Status:     active
+  Created:    2024-01-15 10:23
+  Dashboard:  https://ui.tinybird.co/my-workspace/branch/feature-analytics
+```
+
+- **Git**: Original git branch name
+- **Tinybird**: Sanitized branch name
+- **Status**: Branch state (active, not created)
+- **Created**: When branch was created
+- **Dashboard**: Branch-specific dashboard URL
+
+### Project
+
+Local project configuration:
+
+```text
+Project:
+  Directory:  /Users/you/project
+  Config:     tinybird.config.json
+  Dev Mode:   branch
+  Main:       no
+```
+
+- **Directory**: Current working directory
+- **Config**: Configuration file path
+- **Dev Mode**: Development mode (branch or local)
+- **Main**: Whether on main/master branch
+
+### Branches List
+
+All branches in workspace:
+
+```text
+Branches (3):
+  • feature-analytics (current)
+  • feature-user-events  
+  • fix-schema-bug
+```
+
+## Use Cases
+
+### Verify Configuration
+
+Check your setup before development:
+
+```bash
+tinybird info
+```
+
+Verify:
+- ✓ Token is valid
+- ✓ Workspace is correct
+- ✓ Branch matches git
+- ✓ Config file loaded
+
+### Debug Authentication
+
+When commands fail with auth errors:
+
+```bash
+tinybird info
+```
+
+```text
+Error: Invalid token
+```
+
+Fix:
+
+```bash
+tinybird login
+```
+
+### Check Branch Status
+
+Verify which branch you're working on:
+
+```bash
+tinybird info | grep Branch
+```
+
+```text
+Branch:
+  Git:        feature/analytics
+  Tinybird:   feature-analytics
+```
+
+### Scripting
+
+Extract specific values:
+
+```bash
+# Get workspace name
+WORKSPACE=$(tinybird info --json | jq -r '.cloud.workspaceName')
+echo "Workspace: $WORKSPACE"
+
+# Get branch name
+BRANCH=$(tinybird info --json | jq -r '.branch.name')
+echo "Branch: $BRANCH"
+
+# Check if on main
+IS_MAIN=$(tinybird info --json | jq -r '.project.isMainBranch')
+if [ "$IS_MAIN" = "true" ]; then
+  echo "On main branch"
+fi
+```
+
+## Examples
+
+### Check Workspace
+
+```bash
+tinybird info
+```
+
+View all workspace and project details.
+
+### JSON for CI
+
+```bash
+tinybird info --json > tinybird-info.json
+```
+
+Save info for CI/CD pipeline.
+
+### Compare Environments
+
+```bash
+# Development
+TINYBIRD_TOKEN=$DEV_TOKEN tinybird info --json > dev.json
+
+# Production  
+TINYBIRD_TOKEN=$PROD_TOKEN tinybird info --json > prod.json
+
+# Compare
+diff dev.json prod.json
+```
+
+### Verify Local Mode
+
+```bash
+tinybird info
+```
+
+```text
+Local:
+  Running:    yes
+  Workspace:  main
+```
+
+Confirms local Tinybird is running.
+
+### Quick Branch Check
+
+```bash
+tinybird info | grep Tinybird:
+```
+
+```text
+  Tinybird:   feature-analytics
+```
+
+Show just the Tinybird branch name.
+
+## Environment Detection
+
+### Git Branch
+
+Info detects current git branch:
+
+```bash
+git checkout feature/new-endpoint
+tinybird info
+```
+
+```text
+Branch:
+  Git:        feature/new-endpoint
+  Tinybird:   feature-new-endpoint
+  Status:     not created
+```
+
+### Main Branch
+
+```bash
+git checkout main
+tinybird info
+```
+
+```text
+Project:
+  Main:       yes
+
+Branch:
+  (none - using main workspace)
+```
+
+### Not a Git Repo
+
+```bash
+cd /tmp/test
+tinybird info
+```
+
+```text
+Project:
+  Git Branch: (not a git repository)
+  Main:       yes
+```
+
+## Dashboard URLs
+
+Info provides clickable dashboard URLs:
+
+### Workspace Dashboard
+
+```text
+Workspace:
+  Dashboard:  https://ui.tinybird.co/my-workspace
+```
+
+Click to view:
+- Main workspace resources
+- All datasources and pipes
+- Workspace settings
+
+### Branch Dashboard
+
+```text
+Branch:
+  Dashboard:  https://ui.tinybird.co/my-workspace/branch/feature-analytics
+```
+
+Click to view:
+- Branch-specific resources
+- Isolated from main
+- Test queries in branch
+
+### Local Dashboard
+
+```text
+Local:
+  Dashboard:  http://localhost:7181/my-workspace
+```
+
+Click to view local Tinybird UI.
+
+## Troubleshooting
+
+### No Config Found
+
+```text
+Error: No tinybird config found
+```
+
+Run in project directory:
+
+```bash
+cd /path/to/project
+tinybird info
+```
+
+Or initialize:
+
+```bash
+npx tinybird init
+```
+
+### Invalid Token
+
+```text
+Error: Invalid token or insufficient permissions
+```
+
+Login again:
+
+```bash
+tinybird login
+tinybird info
+```
+
+### Workspace Not Found
+
+```text
+Error: Failed to get workspace info
+```
+
+Check:
+1. Token is valid
+2. Workspace exists
+3. Network connection
+
+### Local Not Running
+
+```text
+Local:
+  Running:    no
+```
+
+Start local Tinybird:
+
+```bash
+docker run -d -p 7181:7181 tinybirdco/tinybird-local:latest
+tinybird info
+```
+
+## Related Commands
+
+- **login**: Authenticate and get workspace info
+- **branch**: Manage branches shown in info
+- **dev**: Development based on info config
+- **deploy**: Deploy based on workspace info
+
+<Note>
+  Use `info --json` in scripts for reliable parsing. The human-readable format may change between versions.
+</Note>

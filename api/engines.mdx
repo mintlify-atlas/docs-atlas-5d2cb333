@@ -1,0 +1,371 @@
+---
+title: Engine Configurations
+description: ClickHouse table engine configurations for Tinybird datasources
+---
+
+Engine configurations determine how data is stored, merged, and queried in ClickHouse. The SDK provides type-safe builders for all major MergeTree engine variants.
+
+## Basic Usage
+
+```typescript
+import { engine } from '@tinybirdco/sdk';
+
+engine.mergeTree({
+  sortingKey: ['user_id', 'timestamp'],
+  partitionKey: 'toYYYYMM(timestamp)',
+  ttl: 'timestamp + INTERVAL 90 DAY',
+});
+```
+
+## Common Configuration Options
+
+All MergeTree engines share these base configuration options:
+
+<ParamField path="sortingKey" type="string | string[]" required>
+  Columns used for sorting data within parts. This is required for all MergeTree engines.
+  
+  ```typescript
+  sortingKey: ['user_id', 'timestamp']
+  ```
+</ParamField>
+
+<ParamField path="partitionKey" type="string">
+  Expression for partitioning data (e.g., `'toYYYYMM(timestamp)'`). Partitions enable efficient data management and pruning.
+  
+  ```typescript
+  partitionKey: 'toYYYYMM(timestamp)'
+  ```
+</ParamField>
+
+<ParamField path="primaryKey" type="string | string[]">
+  Primary key columns. Defaults to `sortingKey` if not specified.
+  
+  ```typescript
+  primaryKey: ['user_id']
+  ```
+</ParamField>
+
+<ParamField path="ttl" type="string">
+  TTL expression for automatic data expiration.
+  
+  ```typescript
+  ttl: 'timestamp + INTERVAL 90 DAY'
+  ```
+</ParamField>
+
+<ParamField path="settings" type="Record<string, string | number | boolean>">
+  Additional engine settings.
+  
+  ```typescript
+  settings: {
+    index_granularity: 8192,
+    min_bytes_for_wide_part: 0,
+  }
+  ```
+</ParamField>
+
+## MergeTree
+
+<Card title="engine.mergeTree()" icon="table">
+The most universal and functional table engine for high-load tasks.
+
+**Best for:** General-purpose analytics, logs, events
+
+```typescript
+import { engine } from '@tinybirdco/sdk';
+
+engine.mergeTree({
+  sortingKey: ['user_id', 'timestamp'],
+  partitionKey: 'toYYYYMM(timestamp)',
+  ttl: 'timestamp + INTERVAL 90 DAY',
+});
+```
+</Card>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    user_id: t.string(),
+    event_name: t.string(),
+    properties: t.string(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['event_name', 'timestamp'],
+    partitionKey: 'toYYYYMM(timestamp)',
+    ttl: 'timestamp + INTERVAL 90 DAY',
+  }),
+});
+```
+
+## ReplacingMergeTree
+
+<Card title="engine.replacingMergeTree()" icon="arrows-rotate">
+Removes duplicate rows with the same sorting key during background merges.
+
+**Best for:** Maintaining latest state, upserts, slowly changing dimensions
+
+```typescript
+engine.replacingMergeTree({
+  sortingKey: ['id'],
+  ver: 'updated_at', // Optional version column
+});
+```
+</Card>
+
+<ParamField path="ver" type="string">
+  Optional version column. Rows with the highest version are kept during merges.
+</ParamField>
+
+<ParamField path="isDeleted" type="string">
+  Optional flag column for clean mode (ClickHouse 23.2+). Rows with `isDeleted = 1` are removed during merges.
+</ParamField>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const users = defineDatasource('users', {
+  schema: {
+    id: t.string(),
+    name: t.string(),
+    email: t.string(),
+    updated_at: t.dateTime(),
+  },
+  engine: engine.replacingMergeTree({
+    sortingKey: ['id'],
+    ver: 'updated_at',
+  }),
+});
+```
+
+## SummingMergeTree
+
+<Card title="engine.summingMergeTree()" icon="plus">
+Sums numeric columns for rows with the same sorting key during background merges.
+
+**Best for:** Counters, metrics aggregation, pre-aggregated data
+
+```typescript
+engine.summingMergeTree({
+  sortingKey: ['date', 'metric_name'],
+  columns: ['value'], // Columns to sum
+});
+```
+</Card>
+
+<ParamField path="columns" type="string[]">
+  Columns to sum during merges. If not specified, all numeric columns are summed.
+</ParamField>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const metrics = defineDatasource('metrics', {
+  schema: {
+    date: t.date(),
+    metric_name: t.string(),
+    value: t.int64(),
+    count: t.int32(),
+  },
+  engine: engine.summingMergeTree({
+    sortingKey: ['date', 'metric_name'],
+    columns: ['value', 'count'],
+  }),
+});
+```
+
+## AggregatingMergeTree
+
+<Card title="engine.aggregatingMergeTree()" icon="chart-line">
+For incremental data aggregation with AggregateFunction columns.
+
+**Best for:** Materialized views, incremental aggregation pipelines
+
+```typescript
+engine.aggregatingMergeTree({
+  sortingKey: ['date'],
+});
+```
+</Card>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const dailyStats = defineDatasource('daily_stats', {
+  schema: {
+    date: t.date(),
+    pathname: t.string(),
+    views: t.simpleAggregateFunction('sum', t.uint64()),
+    unique_sessions: t.aggregateFunction('uniq', t.string()),
+  },
+  engine: engine.aggregatingMergeTree({
+    sortingKey: ['date', 'pathname'],
+  }),
+});
+```
+
+## CollapsingMergeTree
+
+<Card title="engine.collapsingMergeTree()" icon="compress">
+For collapsing rows that cancel each other out.
+
+**Best for:** Changelog-style updates, mutable data with deletes
+
+```typescript
+engine.collapsingMergeTree({
+  sortingKey: ['id', 'timestamp'],
+  sign: 'sign', // Column containing 1 or -1
+});
+```
+</Card>
+
+<ParamField path="sign" type="string" required>
+  Column containing the sign (1 for state, -1 for cancel).
+</ParamField>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const userActions = defineDatasource('user_actions', {
+  schema: {
+    id: t.string(),
+    timestamp: t.dateTime(),
+    action: t.string(),
+    sign: t.int8(), // 1 or -1
+  },
+  engine: engine.collapsingMergeTree({
+    sortingKey: ['id', 'timestamp'],
+    sign: 'sign',
+  }),
+});
+```
+
+## VersionedCollapsingMergeTree
+
+<Card title="engine.versionedCollapsingMergeTree()" icon="code-branch">
+For collapsing with versioning when events may arrive out of order.
+
+**Best for:** Changelog-style updates with potential out-of-order arrival
+
+```typescript
+engine.versionedCollapsingMergeTree({
+  sortingKey: ['id'],
+  sign: 'sign',
+  version: 'version',
+});
+```
+</Card>
+
+<ParamField path="sign" type="string" required>
+  Column containing the sign (1 for state, -1 for cancel).
+</ParamField>
+
+<ParamField path="version" type="string" required>
+  Column containing the version number for ordering.
+</ParamField>
+
+### Full Example
+
+```typescript
+import { defineDatasource, t, engine } from '@tinybirdco/sdk';
+
+export const changelog = defineDatasource('changelog', {
+  schema: {
+    id: t.string(),
+    timestamp: t.dateTime(),
+    data: t.string(),
+    sign: t.int8(),
+    version: t.uint64(),
+  },
+  engine: engine.versionedCollapsingMergeTree({
+    sortingKey: ['id'],
+    sign: 'sign',
+    version: 'version',
+  }),
+});
+```
+
+## Choosing the Right Engine
+
+<CardGroup cols={2}>
+  <Card title="MergeTree" icon="table">
+    Use for append-only data like logs, events, and analytics.
+  </Card>
+  
+  <Card title="ReplacingMergeTree" icon="arrows-rotate">
+    Use when you need to update rows by replacing old versions.
+  </Card>
+  
+  <Card title="SummingMergeTree" icon="plus">
+    Use for counters and metrics that can be summed.
+  </Card>
+  
+  <Card title="AggregatingMergeTree" icon="chart-line">
+    Use for complex aggregations in materialized views.
+  </Card>
+  
+  <Card title="CollapsingMergeTree" icon="compress">
+    Use for mutable data with changelog semantics.
+  </Card>
+  
+  <Card title="VersionedCollapsingMergeTree" icon="code-branch">
+    Use for mutable data with out-of-order updates.
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+### Sorting Key Selection
+
+Choose sorting keys based on your query patterns:
+
+```typescript
+// Good: Most selective columns first
+sortingKey: ['user_id', 'timestamp']
+
+// Good: Match your WHERE clause patterns
+sortingKey: ['date', 'country', 'event_type']
+```
+
+### Partition Key Selection
+
+Partition by time periods for efficient data management:
+
+```typescript
+// Monthly partitions
+partitionKey: 'toYYYYMM(timestamp)'
+
+// Daily partitions (for high-volume data)
+partitionKey: 'toYYYYMMDD(timestamp)'
+
+// Yearly partitions (for low-volume data)
+partitionKey: 'toYear(timestamp)'
+```
+
+### TTL for Data Retention
+
+Automatically expire old data:
+
+```typescript
+// Keep 90 days
+ttl: 'timestamp + INTERVAL 90 DAY'
+
+// Keep 1 year
+ttl: 'timestamp + INTERVAL 1 YEAR'
+```
+
+<Warning>
+Changing the engine type requires recreating the datasource. Plan your engine choice carefully based on your use case.
+</Warning>

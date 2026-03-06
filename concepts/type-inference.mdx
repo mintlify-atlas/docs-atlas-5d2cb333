@@ -1,0 +1,431 @@
+---
+title: Type Inference
+description: Extract TypeScript types from Tinybird schema definitions
+---
+
+The SDK provides powerful type inference utilities that extract TypeScript types from your datasource and pipe definitions. This enables full type safety throughout your application, from schema definition to runtime queries.
+
+## Type Inference Utilities
+
+The SDK exports three main type inference utilities:
+
+<CardGroup cols={3}>
+  <Card title="InferRow" icon="table">
+    Extract row types from datasources
+  </Card>
+  <Card title="InferParams" icon="sliders">
+    Extract parameter types from pipes
+  </Card>
+  <Card title="InferOutputRow" icon="arrow-right">
+    Extract output types from pipes
+  </Card>
+</CardGroup>
+
+## InferRow
+
+Extract the row type from a datasource definition for type-safe data ingestion:
+
+```typescript
+import { defineDatasource, t, engine, type InferRow } from '@tinybirdco/sdk';
+
+export const events = defineDatasource('events', {
+  schema: {
+    timestamp: t.dateTime(),
+    event_name: t.string().lowCardinality(),
+    user_id: t.string().nullable(),
+    count: t.int32(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['timestamp'],
+  }),
+});
+
+// Extract the row type
+export type EventRow = InferRow<typeof events>;
+// Result:
+// {
+//   timestamp: string;
+//   event_name: string;
+//   user_id: string | null;
+//   count: number;
+// }
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:42-60`
+
+### Using Inferred Types
+
+Use the inferred type for type-safe data ingestion:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+import type { EventRow } from './datasources';
+
+// Type-safe ingestion
+const event: EventRow = {
+  timestamp: '2024-01-15 10:30:00',
+  event_name: 'page_view',
+  user_id: 'user_123',
+  count: 1,
+};
+
+await tinybird.events.ingest(event);
+
+// TypeScript will catch errors:
+await tinybird.events.ingest({
+  timestamp: '2024-01-15 10:30:00',
+  event_name: 'page_view',
+  // Error: Property 'user_id' is missing
+  count: 'invalid', // Error: Type 'string' is not assignable to type 'number'
+});
+```
+
+### Type Mapping
+
+The SDK maps ClickHouse types to TypeScript types:
+
+| ClickHouse Type | TypeScript Type |
+|----------------|----------------|
+| `String`, `FixedString`, `UUID` | `string` |
+| `Int8`, `Int16`, `Int32`, `UInt8`, `UInt16`, `UInt32`, `Float32`, `Float64` | `number` |
+| `Int64`, `UInt64`, `Int128`, `UInt128`, `Int256`, `UInt256` | `bigint` |
+| `Bool` | `boolean` |
+| `Date`, `DateTime`, `DateTime64` | `string` |
+| `Array(T)` | `T[]` |
+| `Map(K, V)` | `Map<K, V>` |
+| `Tuple(T1, T2, ...)` | `[T1, T2, ...]` |
+| `JSON` | `unknown` (customizable) |
+| `Nullable(T)` | `T \| null` |
+
+### Nullable Types
+
+Nullable columns are automatically typed as union with `null`:
+
+```typescript
+const schema = {
+  required_field: t.string(),
+  optional_field: t.string().nullable(),
+};
+
+type Row = InferRow<typeof datasource>;
+// {
+//   required_field: string;
+//   optional_field: string | null;
+// }
+```
+
+## InferParams
+
+Extract parameter types from pipe definitions:
+
+```typescript
+import { defineEndpoint, node, p, t, type InferParams } from '@tinybirdco/sdk';
+
+export const topEvents = defineEndpoint('top_events', {
+  params: {
+    start_date: p.dateTime(),
+    end_date: p.dateTime(),
+    limit: p.int32().optional(10),
+    offset: p.int32().optional(),
+  },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `SELECT * FROM events LIMIT {{Int32(limit, 10)}}`,
+    }),
+  ],
+  output: {
+    event_name: t.string(),
+    count: t.uint64(),
+  },
+});
+
+// Extract parameter types
+export type TopEventsParams = InferParams<typeof topEvents>;
+// Result:
+// {
+//   start_date: string;
+//   end_date: string;
+//   limit?: number;
+//   offset?: number;
+// }
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:88-111`
+
+### Using Parameter Types
+
+Use inferred parameter types for type-safe queries:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+import type { TopEventsParams } from './pipes';
+
+// Type-safe query
+const params: TopEventsParams = {
+  start_date: '2024-01-01 00:00:00',
+  end_date: '2024-01-31 23:59:59',
+  limit: 5,
+  // offset is optional, can be omitted
+};
+
+const result = await tinybird.topEvents.query(params);
+
+// TypeScript catches parameter errors:
+await tinybird.topEvents.query({
+  start_date: '2024-01-01 00:00:00',
+  // Error: Property 'end_date' is required
+  limit: 'invalid', // Error: Type 'string' is not assignable to type 'number'
+});
+```
+
+### Optional vs Required Parameters
+
+The SDK correctly distinguishes between optional and required parameters:
+
+```typescript
+import { p } from '@tinybirdco/sdk';
+
+const params = {
+  // Required parameter
+  user_id: p.string(),
+  
+  // Optional with default
+  limit: p.int32().optional(10),
+  
+  // Optional without default
+  filter: p.string().optional(),
+};
+
+type Params = InferParams<typeof pipe>;
+// {
+//   user_id: string;      // Required
+//   limit?: number;       // Optional
+//   filter?: string;      // Optional
+// }
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:63-83`
+
+## InferOutputRow
+
+Extract the output row type from pipe definitions:
+
+```typescript
+import { defineEndpoint, node, t, type InferOutputRow } from '@tinybirdco/sdk';
+
+export const topPages = defineEndpoint('top_pages', {
+  params: { limit: p.int32() },
+  nodes: [
+    node({
+      name: 'aggregated',
+      sql: `
+        SELECT pathname, count() AS views
+        FROM page_views
+        GROUP BY pathname
+        ORDER BY views DESC
+      `,
+    }),
+  ],
+  output: {
+    pathname: t.string(),
+    views: t.uint64(),
+  },
+});
+
+// Extract output row type
+export type TopPagesOutput = InferOutputRow<typeof topPages>;
+// Result:
+// {
+//   pathname: string;
+//   views: number;
+// }
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:137-142`
+
+### Using Output Types
+
+Use the inferred type for type-safe result handling:
+
+```typescript
+import { tinybird } from '@tinybird/client';
+import type { TopPagesOutput } from './pipes';
+
+const result = await tinybird.topPages.query({ limit: 10 });
+
+// result.data is typed as TopPagesOutput[]
+result.data.forEach((row: TopPagesOutput) => {
+  console.log(`${row.pathname}: ${row.views} views`);
+  
+  // TypeScript provides autocomplete and type checking
+  const path: string = row.pathname;
+  const count: number = row.views;
+  
+  // Error: Property 'invalid' does not exist
+  // const x = row.invalid;
+});
+```
+
+### InferOutput (Array Type)
+
+For cases where you need the full array type:
+
+```typescript
+import { type InferOutput } from '@tinybirdco/sdk';
+
+type TopPagesData = InferOutput<typeof topPages>;
+// TopPagesOutput[] (array type)
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:128-135`
+
+## Advanced Type Inference
+
+### Custom Branded Types
+
+For stricter type safety, use branded types:
+
+```typescript
+import { t, type InferRow } from '@tinybirdco/sdk';
+
+// Define branded types
+type UserId = string & { readonly __brand: 'UserId' };
+type Timestamp = string & { readonly __brand: 'Timestamp' };
+
+const events = defineDatasource('events', {
+  schema: {
+    user_id: t.string<UserId>(),
+    timestamp: t.dateTime<Timestamp>(),
+    count: t.int32(),
+  },
+});
+
+type EventRow = InferRow<typeof events>;
+// {
+//   user_id: UserId;
+//   timestamp: Timestamp;
+//   count: number;
+// }
+```
+
+### Partial Types
+
+For partial updates, use `PartialRow`:
+
+```typescript
+import { type PartialRow } from '@tinybirdco/sdk';
+import type { EventRow } from './datasources';
+
+type PartialEvent = PartialRow<typeof events>;
+// {
+//   timestamp?: string;
+//   event_name?: string;
+//   user_id?: string | null;
+//   count?: number;
+// }
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:168-172`
+
+### Extract Schema Type
+
+Extract the raw schema definition:
+
+```typescript
+import { type InferSchema } from '@tinybirdco/sdk';
+
+type EventsSchema = InferSchema<typeof events>;
+// The raw SchemaDefinition type
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:174-177`
+
+### Materialized View Target Types
+
+Extract the target datasource from a materialized view:
+
+```typescript
+import { type InferMaterializedTarget, type InferMaterializedTargetRow } from '@tinybirdco/sdk';
+
+// Extract target datasource
+type Target = InferMaterializedTarget<typeof myMv>;
+
+// Extract target row type
+type TargetRow = InferMaterializedTargetRow<typeof myMv>;
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:194-235`
+
+## Type Inference Helper
+
+For individual type validators:
+
+```typescript
+import { t, type Infer } from '@tinybirdco/sdk';
+
+const myType = t.array(t.string().nullable());
+type MyType = Infer<typeof myType>;
+// (string | null)[]
+```
+
+**Location:** `~/workspace/source/src/infer/index.ts:14-28`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Export types alongside definitions">
+    Export inferred types alongside your datasource and pipe definitions for easy reuse:
+    
+    ```typescript
+    export const events = defineDatasource('events', { /* ... */ });
+    export type EventRow = InferRow<typeof events>;
+    
+    export const topEvents = defineEndpoint('top_events', { /* ... */ });
+    export type TopEventsParams = InferParams<typeof topEvents>;
+    export type TopEventsOutput = InferOutputRow<typeof topEvents>;
+    ```
+  </Accordion>
+  
+  <Accordion title="Create a central types file">
+    Consider creating a central types file that re-exports all your inferred types:
+    
+    ```typescript
+    // types.ts
+    export type { EventRow, PageViewRow } from './datasources';
+    export type { TopEventsParams, TopEventsOutput } from './pipes';
+    ```
+  </Accordion>
+  
+  <Accordion title="Use in API routes">
+    Use inferred types in your API routes for end-to-end type safety:
+    
+    ```typescript
+    import type { TopEventsParams, TopEventsOutput } from '@tinybird/client';
+    
+    export async function GET(request: Request) {
+      const params: TopEventsParams = { /* ... */ };
+      const result = await tinybird.topEvents.query(params);
+      const data: TopEventsOutput[] = result.data;
+      return Response.json(data);
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Datasources" icon="database" href="/concepts/datasources">
+    Learn about datasource schema definitions
+  </Card>
+  <Card title="Pipes" icon="pipe" href="/concepts/pipes">
+    Learn about pipe parameter and output definitions
+  </Card>
+  <Card title="Type Validators" icon="check" href="/api/types">
+    Complete reference of t.* validators
+  </Card>
+  <Card title="Parameter Validators" icon="sliders" href="/api/params">
+    Complete reference of p.* validators
+  </Card>
+</CardGroup>

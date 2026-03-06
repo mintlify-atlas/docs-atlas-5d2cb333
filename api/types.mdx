@@ -1,0 +1,350 @@
+---
+title: Type Validators (t.*)
+description: Column type validators for Tinybird datasources with full TypeScript inference
+---
+
+Type validators define column schemas for Tinybird datasources. They provide full TypeScript type inference and map directly to ClickHouse column types.
+
+## Basic Usage
+
+```typescript
+import { t } from '@tinybirdco/sdk';
+
+const schema = {
+  id: t.string(),
+  count: t.int32(),
+  timestamp: t.dateTime(),
+  tags: t.array(t.string()),
+  metadata: t.json(),
+};
+```
+
+## String Types
+
+<Card title="t.string()" icon="text">
+Variable length UTF-8 string.
+
+```typescript
+name: t.string()
+```
+</Card>
+
+<Card title="t.fixedString(length)" icon="text-width">
+Fixed length string, padded with null bytes.
+
+```typescript
+code: t.fixedString(3) // 3-character country code
+```
+</Card>
+
+<Card title="t.uuid()" icon="fingerprint">
+16-byte universally unique identifier.
+
+```typescript
+id: t.uuid()
+```
+</Card>
+
+## Integer Types
+
+<CardGroup cols={2}>
+  <Card title="t.int8()">
+    Signed 8-bit integer (-128 to 127)
+  </Card>
+  <Card title="t.int16()">
+    Signed 16-bit integer
+  </Card>
+  <Card title="t.int32()">
+    Signed 32-bit integer
+  </Card>
+  <Card title="t.int64()">
+    Signed 64-bit integer
+  </Card>
+  <Card title="t.int128()">
+    Signed 128-bit integer (bigint)
+  </Card>
+  <Card title="t.int256()">
+    Signed 256-bit integer (bigint)
+  </Card>
+  <Card title="t.uint8()">
+    Unsigned 8-bit integer (0 to 255)
+  </Card>
+  <Card title="t.uint16()">
+    Unsigned 16-bit integer
+  </Card>
+  <Card title="t.uint32()">
+    Unsigned 32-bit integer
+  </Card>
+  <Card title="t.uint64()">
+    Unsigned 64-bit integer
+  </Card>
+  <Card title="t.uint128()">
+    Unsigned 128-bit integer (bigint)
+  </Card>
+  <Card title="t.uint256()">
+    Unsigned 256-bit integer (bigint)
+  </Card>
+</CardGroup>
+
+## Float Types
+
+<Card title="t.float32()" icon="calculator">
+32-bit floating point number.
+
+```typescript
+temperature: t.float32()
+```
+</Card>
+
+<Card title="t.float64()" icon="calculator">
+64-bit floating point number (double precision).
+
+```typescript
+amount: t.float64()
+```
+</Card>
+
+<Card title="t.decimal(precision, scale)" icon="dollar-sign">
+Fixed-point decimal number.
+
+```typescript
+price: t.decimal(10, 2) // 10 total digits, 2 decimal places
+```
+</Card>
+
+## Boolean
+
+<Card title="t.bool()" icon="toggle-on">
+Boolean value (true/false).
+
+```typescript
+is_active: t.bool()
+```
+</Card>
+
+## Date/Time Types
+
+<Card title="t.date()" icon="calendar">
+Date in YYYY-MM-DD format.
+
+```typescript
+birth_date: t.date() // "2024-01-15"
+```
+</Card>
+
+<Card title="t.date32()" icon="calendar-days">
+Date in YYYY-MM-DD format with extended date range.
+
+```typescript
+archive_date: t.date32()
+```
+</Card>
+
+<Card title="t.dateTime(timezone?)" icon="clock">
+DateTime in YYYY-MM-DD HH:MM:SS format.
+
+```typescript
+created_at: t.dateTime() // "2024-01-15 10:30:00"
+updated_at: t.dateTime('UTC') // with timezone
+```
+</Card>
+
+<Card title="t.dateTime64(precision?, timezone?)" icon="stopwatch">
+DateTime with fractional seconds.
+
+```typescript
+timestamp: t.dateTime64(3) // "2024-01-15 10:30:00.123"
+logged_at: t.dateTime64(6, 'America/New_York') // microseconds with timezone
+```
+
+Precision can be 0-9 (defaults to 3 for milliseconds).
+</Card>
+
+## Complex Types
+
+<Card title="t.array(element)" icon="list">
+Array of elements of type T.
+
+```typescript
+tags: t.array(t.string())
+scores: t.array(t.int32())
+```
+</Card>
+
+<Card title="t.tuple(...elements)" icon="brackets-curly">
+Tuple of heterogeneous types.
+
+```typescript
+coordinates: t.tuple(t.float64(), t.float64())
+```
+</Card>
+
+<Card title="t.map(keyType, valueType)" icon="map">
+Dictionary/map type.
+
+```typescript
+metadata: t.map(t.string(), t.string())
+counters: t.map(t.string(), t.int32())
+```
+</Card>
+
+<Card title="t.json()" icon="brackets-curly">
+Semi-structured JSON data.
+
+```typescript
+properties: t.json()
+```
+</Card>
+
+## Enum Types
+
+<Card title="t.enum8(...values)" icon="list-check">
+Enumeration stored as Int8.
+
+```typescript
+status: t.enum8('pending', 'active', 'completed')
+```
+</Card>
+
+<Card title="t.enum16(...values)" icon="list-check">
+Enumeration stored as Int16.
+
+```typescript
+priority: t.enum16('low', 'medium', 'high', 'critical')
+```
+</Card>
+
+## Special Types
+
+<CardGroup cols={2}>
+  <Card title="t.ipv4()" icon="network-wired">
+    IPv4 address
+    ```typescript
+    ip: t.ipv4()
+    ```
+  </Card>
+  <Card title="t.ipv6()" icon="network-wired">
+    IPv6 address
+    ```typescript
+    ip: t.ipv6()
+    ```
+  </Card>
+</CardGroup>
+
+## Aggregate Function States
+
+<Card title="t.simpleAggregateFunction(func, type)" icon="function">
+For materialized views with simple aggregates (sum, min, max, any, anyLast).
+
+```typescript
+total: t.simpleAggregateFunction('sum', t.uint64())
+max_value: t.simpleAggregateFunction('max', t.float64())
+```
+</Card>
+
+<Card title="t.aggregateFunction(func, type)" icon="function">
+For materialized views with complex aggregates.
+
+```typescript
+unique_users: t.aggregateFunction('uniq', t.string())
+avg_value: t.aggregateFunction('avg', t.float64())
+```
+</Card>
+
+## Modifiers
+
+### .nullable()
+
+Make a column nullable.
+
+```typescript
+country: t.string().nullable()
+// TypeScript type: string | null
+```
+
+### .lowCardinality()
+
+Apply LowCardinality optimization for columns with few unique values (improves performance for strings with < 10,000 unique values).
+
+```typescript
+category: t.string().lowCardinality()
+status: t.string().lowCardinality().nullable()
+```
+
+### .default(value)
+
+Set a default value for the column.
+
+```typescript
+status: t.string().default('pending')
+count: t.int32().default(0)
+```
+
+### .codec(codec)
+
+Set a compression codec for the column.
+
+```typescript
+payload: t.string().codec('ZSTD(3)')
+value: t.float64().codec('Delta, LZ4')
+```
+
+### .jsonPath(path)
+
+Set an explicit JSON path for extraction (overrides autogenerated path).
+
+```typescript
+user_id: t.string().jsonPath('$.user.id')
+```
+
+## Custom Type Brands
+
+You can use TypeScript branded types for narrower type inference:
+
+```typescript
+type UserId = string & { readonly __brand: 'UserId' };
+type Timestamp = string & { readonly __brand: 'Timestamp' };
+
+const schema = {
+  user_id: t.string<UserId>(),
+  created_at: t.dateTime<Timestamp>(),
+};
+```
+
+## Complete Example
+
+```typescript
+import { defineDatasource, t, engine, type InferRow } from '@tinybirdco/sdk';
+
+export const pageViews = defineDatasource('page_views', {
+  description: 'Page view tracking data',
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+    country: t.string().lowCardinality().nullable(),
+    duration_ms: t.int32().nullable(),
+    metadata: t.json(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['pathname', 'timestamp'],
+    partitionKey: 'toYYYYMM(timestamp)',
+    ttl: 'timestamp + INTERVAL 90 DAY',
+  }),
+});
+
+// Export row type for ingestion
+export type PageViewsRow = InferRow<typeof pageViews>;
+// { timestamp: string, pathname: string, session_id: string, country: string | null, duration_ms: number | null, metadata: unknown }
+```
+
+## Type Inference Helpers
+
+```typescript
+import { type InferType, type TinybirdType } from '@tinybirdco/sdk';
+
+const userIdValidator = t.string();
+
+type UserIdType = InferType<typeof userIdValidator>; // string
+type UserIdTinybirdType = TinybirdType<typeof userIdValidator>; // "String"
+```

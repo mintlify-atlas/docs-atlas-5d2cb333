@@ -1,0 +1,119 @@
+---
+title: "InferRow<T>"
+description: "Extract TypeScript row types from datasource definitions"
+---
+
+`InferRow<T>` is a utility type that extracts the TypeScript type for a single row from a datasource definition. This enables type-safe data ingestion and manipulation.
+
+## Type Signature
+
+```typescript
+export type InferRow<T> = T extends DatasourceDefinition<infer S>
+  ? { [K in keyof S]: InferColumn<S[K]> }
+  : never;
+```
+
+## Usage
+
+### Basic Example
+
+```typescript
+import { defineDatasource, t, type InferRow } from '@tinybirdco/sdk';
+
+const events = defineDatasource('events', {
+  schema: {
+    id: t.string(),
+    count: t.int32(),
+    timestamp: t.dateTime(),
+  },
+});
+
+type EventRow = InferRow<typeof events>;
+// { id: string; count: number; timestamp: string }
+```
+
+### With Nullable Fields
+
+```typescript
+import { defineDatasource, t, engine, type InferRow } from '@tinybirdco/sdk';
+
+const pageViews = defineDatasource('page_views', {
+  description: 'Page view tracking data',
+  schema: {
+    timestamp: t.dateTime(),
+    pathname: t.string(),
+    session_id: t.string(),
+    country: t.string().lowCardinality().nullable(),
+  },
+  engine: engine.mergeTree({
+    sortingKey: ['pathname', 'timestamp'],
+  }),
+});
+
+type PageViewRow = InferRow<typeof pageViews>;
+// { timestamp: string, pathname: string, session_id: string, country: string | null }
+```
+
+### Type-Safe Data Ingestion
+
+```typescript
+import { tinybird, type PageViewRow } from '@tinybird/client';
+
+// TypeScript enforces the correct shape
+const event: PageViewRow = {
+  timestamp: '2024-01-15 10:30:00',
+  pathname: '/home',
+  session_id: 'abc123',
+  country: 'US',
+};
+
+await tinybird.pageViews.ingest(event);
+```
+
+## Related Types
+
+<CardGroup cols={2}>
+  <Card title="InferEvent<T>" icon="upload" href="#infer-event">
+    Alias for InferRow (used for event ingestion)
+  </Card>
+  <Card title="PartialRow<T>" icon="puzzle-piece">
+    Makes all properties of InferRow optional
+  </Card>
+</CardGroup>
+
+### InferEvent
+
+`InferEvent<T>` is an alias for `InferRow<T>`, providing semantic clarity when working with event ingestion:
+
+```typescript
+import { defineDatasource, t, type InferEvent } from '@tinybirdco/sdk';
+
+const events = defineDatasource('events', {
+  schema: {
+    id: t.string(),
+    timestamp: t.dateTime(),
+  },
+});
+
+type Event = InferEvent<typeof events>;
+// { id: string; timestamp: string }
+
+// Use for type-safe event ingestion
+const event: Event = { id: '123', timestamp: '2024-01-01 00:00:00' };
+```
+
+## Type Mapping
+
+The inferred TypeScript types correspond to Tinybird column types:
+
+| Tinybird Type | TypeScript Type |
+|---------------|----------------|
+| `t.string()` | `string` |
+| `t.int32()`, `t.uint64()` | `number` |
+| `t.float64()` | `number` |
+| `t.bool()` | `boolean` |
+| `t.dateTime()` | `string` |
+| `t.date()` | `string` |
+| `t.array(T)` | `T[]` |
+| `t.string().nullable()` | `string \| null` |
+| `t.string().lowCardinality()` | `string` |

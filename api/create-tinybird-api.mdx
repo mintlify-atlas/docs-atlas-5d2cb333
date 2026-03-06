@@ -1,0 +1,289 @@
+---
+title: 'createTinybirdApi()'
+description: 'Factory function to create a standalone Tinybird API wrapper'
+---
+
+## Overview
+
+`createTinybirdApi()` creates a low-level API wrapper that provides direct access to Tinybird's REST API. This is a standalone alternative to the typed `TinybirdClient` that requires only a `baseUrl` and `token`.
+
+Use this when you:
+- Want a simple API client without type definitions
+- Need dynamic access without compile-time schemas
+- Are building scripts, CLI tools, or integrations
+- Don't want to define datasources and pipes in TypeScript
+
+## Signature
+
+```typescript
+function createTinybirdApi(config: TinybirdApiConfig): TinybirdApi
+```
+
+## Parameters
+
+<ParamField path="config" type="TinybirdApiConfig" required>
+  Configuration object with the following properties:
+
+  <Expandable title="config properties">
+    <ParamField path="baseUrl" type="string" required>
+      Tinybird API base URL
+
+      **Examples:**
+      - `"https://api.tinybird.co"` (EU region)
+      - `"https://api.us-east.tinybird.co"` (US region)
+    </ParamField>
+
+    <ParamField path="token" type="string" required>
+      Tinybird authentication token. Used as the `Authorization: Bearer` header.
+
+      **Token types:**
+      - Admin token (starts with `p.`): Full access to workspace
+      - Read token: Query endpoints only
+      - Append token: Ingest data only
+      - JWT token: Scoped, time-limited access
+    </ParamField>
+
+    <ParamField path="fetch" type="typeof fetch">
+      Custom fetch implementation. Defaults to `globalThis.fetch`.
+
+      Useful for:
+      - Node.js < 18 environments (use `node-fetch` or `undici`)
+      - Custom retry logic
+      - Request/response interceptors
+    </ParamField>
+
+    <ParamField path="timeout" type="number">
+      Default timeout in milliseconds for all requests. Defaults to `30000` (30 seconds).
+
+      Can be overridden per-request using the `timeout` option in method calls.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+Returns a [`TinybirdApi`](/api/tinybird-api) instance with methods for querying, ingesting, and managing data.
+
+## Example
+
+### Basic Usage
+
+```typescript
+import { createTinybirdApi } from "@tinybirdco/sdk";
+
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+});
+
+// Query an endpoint
+interface TopPagesRow { pathname: string; visits: number }
+
+const result = await api.query<TopPagesRow>("top_pages", {
+  start_date: "2024-01-01",
+  end_date: "2024-01-31",
+  limit: 5,
+});
+
+console.log(result.data);
+```
+
+### Ingest Data
+
+```typescript
+interface EventRow {
+  timestamp: string;
+  event_name: string;
+  pathname: string;
+}
+
+// Ingest a single row
+await api.ingest<EventRow>("events", {
+  timestamp: "2024-01-15 10:30:00",
+  event_name: "page_view",
+  pathname: "/home",
+});
+
+// Ingest multiple rows
+await api.ingestBatch<EventRow>("events", [
+  { timestamp: "2024-01-15 10:30:00", event_name: "page_view", pathname: "/home" },
+  { timestamp: "2024-01-15 10:31:00", event_name: "click", pathname: "/pricing" },
+]);
+```
+
+### Manage Datasource Data
+
+```typescript
+// Import rows from a remote file
+await api.appendDatasource("events", {
+  url: "https://example.com/events.csv",
+});
+
+// Delete rows matching a SQL condition
+await api.deleteDatasource("events", {
+  deleteCondition: "event_name = 'test'",
+});
+
+// Preview deletion without executing
+const preview = await api.deleteDatasource("events", {
+  deleteCondition: "event_name = 'test'",
+  dryRun: true,
+});
+console.log(`Would delete ${preview.rows_to_be_deleted} rows`);
+
+// Remove all rows from the datasource
+await api.truncateDatasource("events");
+```
+
+### Execute Raw SQL
+
+```typescript
+interface CountResult { total: number }
+
+const result = await api.sql<CountResult>(
+  "SELECT count() AS total FROM events"
+);
+
+console.log(`Total events: ${result.data[0].total}`);
+```
+
+### Custom Fetch Implementation
+
+```typescript
+import { createTinybirdApi } from "@tinybirdco/sdk";
+import { fetch } from "undici";
+
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+  fetch, // Use undici's fetch
+  timeout: 60000, // 60 second timeout
+});
+```
+
+### Per-Request Token Override
+
+```typescript
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_DEFAULT_TOKEN!,
+});
+
+// Use a different token for this request
+await api.query(
+  "top_pages",
+  { start_date: "2024-01-01", end_date: "2024-01-31" },
+  { token: process.env.TINYBIRD_BRANCH_TOKEN }
+);
+```
+
+## Configuration Options
+
+### Base URL by Region
+
+Tinybird operates in multiple regions. Use the appropriate base URL for your workspace:
+
+| Region | Base URL |
+|--------|----------|
+| EU (default) | `https://api.tinybird.co` |
+| US East | `https://api.us-east.tinybird.co` |
+
+### Token Types
+
+Different token types grant different levels of access:
+
+| Token Type | Prefix | Capabilities |
+|------------|--------|-------------|
+| Admin | `p.` | Full access: read, write, manage resources |
+| Read | `p.` | Query endpoints only |
+| Append | `p.` | Ingest data into datasources only |
+| JWT | `eyJ` | Scoped, time-limited access with fixed parameters |
+
+See the [JWT Token Creation](/client/create-client#jwt-token-creation) section for creating scoped tokens programmatically.
+
+### Custom Timeouts
+
+Set a default timeout for all requests, or override per-request:
+
+```typescript
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+  timeout: 60000, // 60 second default timeout
+});
+
+// Override for a specific request
+await api.query(
+  "long_running_query",
+  { start_date: "2020-01-01", end_date: "2024-12-31" },
+  { timeout: 120000 } // 2 minute timeout
+);
+```
+
+## Alias
+
+`createTinybirdApiWrapper()` is an alias for teams that prefer "wrapper" naming:
+
+```typescript
+import { createTinybirdApiWrapper } from "@tinybirdco/sdk";
+
+const api = createTinybirdApiWrapper({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+});
+```
+
+## When to Use This vs. Tinybird Client
+
+### Use `createTinybirdApi()` when:
+
+- Building scripts, CLI tools, or automation
+- You don't want to define schemas in TypeScript
+- Working with dynamic datasources/pipes
+- Prototyping or exploring the API
+- Integrating into non-TypeScript projects
+
+### Use `Tinybird` client when:
+
+- You want full type safety and autocomplete
+- Working in a TypeScript application
+- Managing datasources and pipes as code
+- Need compile-time validation of queries and ingestion
+- Want to leverage the full SDK tooling (`tinybird dev`, `tinybird deploy`, etc.)
+
+See the [Tinybird Client](/client/tinybird) documentation for the typed approach.
+
+## Error Handling
+
+All API methods throw `TinybirdApiError` on failure:
+
+```typescript
+import { createTinybirdApi, TinybirdApiError } from "@tinybirdco/sdk";
+
+const api = createTinybirdApi({
+  baseUrl: "https://api.tinybird.co",
+  token: process.env.TINYBIRD_TOKEN!,
+});
+
+try {
+  await api.query("broken_endpoint");
+} catch (error) {
+  if (error instanceof TinybirdApiError) {
+    console.error(`Status: ${error.statusCode}`);
+    console.error(`Message: ${error.message}`);
+    console.error(`Response:`, error.response);
+    console.error(`Raw Body:`, error.responseBody);
+  }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="TinybirdApi" icon="code" href="/api/tinybird-api">
+    Full API reference for the TinybirdApi class
+  </Card>
+  <Card title="Tinybird Client" icon="cube" href="/api/tinybird-client">
+    Type-safe client with schema definitions
+  </Card>
+</CardGroup>
