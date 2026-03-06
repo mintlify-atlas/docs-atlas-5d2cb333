@@ -1,0 +1,161 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Tinybird TypeScript SDK",
+  "projectDescription": "TypeScript SDK for defining Tinybird datasources and pipes with full type inference and CLI tooling",
+  "theme": "aspen",
+  "primaryColor": "#7c7c80",
+  "lightColor": "#151c28",
+  "darkColor": "#f2f2f2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/datasources",
+              "concepts/pipes",
+              "concepts/type-inference",
+              "concepts/connections"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/defining-datasources",
+              "guides/defining-pipes",
+              "guides/materialized-views",
+              "guides/copy-pipes",
+              "guides/sink-pipes",
+              "guides/type-safe-client",
+              "guides/jwt-tokens",
+              "guides/nextjs-integration"
+            ]
+          },
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "cli/overview",
+              "cli/init",
+              "cli/dev",
+              "cli/build",
+              "cli/deploy",
+              "cli/migrate",
+              "cli/pull",
+              "cli/login",
+              "cli/branch",
+              "cli/info"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/config-file",
+              "configuration/environment-variables",
+              "configuration/local-development"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Schema Definitions",
+            "pages": [
+              "api/define-datasource",
+              "api/define-pipe",
+              "api/define-endpoint",
+              "api/define-materialized-view",
+              "api/define-copy-pipe",
+              "api/define-sink-pipe",
+              "api/define-connection",
+              "api/define-token",
+              "api/define-project"
+            ]
+          },
+          {
+            "group": "Type Validators",
+            "pages": [
+              "api/types",
+              "api/params",
+              "api/engines"
+            ]
+          },
+          {
+            "group": "Runtime Client",
+            "pages": [
+              "api/tinybird-client",
+              "api/create-client",
+              "api/query",
+              "api/ingest",
+              "api/datasource-operations"
+            ]
+          },
+          {
+            "group": "Public API",
+            "pages": [
+              "api/tinybird-api",
+              "api/create-tinybird-api"
+            ]
+          },
+          {
+            "group": "Type Inference",
+            "pages": [
+              "api/infer-row",
+              "api/infer-params",
+              "api/infer-output"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Type-safe datasource and pipe definitions in TypeScript",
+    "Full type inference for schemas, parameters, and outputs",
+    "CLI with dev mode, build, and deploy commands",
+    "Runtime client for queries and data ingestion",
+    "Support for Kafka, S3, and GCS connections",
+    "Materialized views, copy pipes, and sink pipes",
+    "JWT token creation for secure scoped access",
+    "Local development mode with Docker",
+    "Branch-based development workflow",
+    "Migration tool for existing Tinybird projects"
+  ],
+  "publicApiSurface": [
+    "defineDatasource",
+    "definePipe",
+    "defineEndpoint",
+    "defineMaterializedView",
+    "defineCopyPipe",
+    "defineSinkPipe",
+    "defineKafkaConnection",
+    "defineS3Connection",
+    "defineGCSConnection",
+    "defineToken",
+    "defineProject",
+    "Tinybird",
+    "t (type validators)",
+    "p (param validators)",
+    "engine",
+    "node",
+    "createClient",
+    "TinybirdClient",
+    "createTinybirdApi",
+    "TinybirdApi",
+    "InferRow",
+    "InferParams",
+    "InferOutputRow",
+    "createJWT"
+  ]
+}
